@@ -1,0 +1,22 @@
+# Dados reais e backups: contêm nomes de colaboradores (LGPD). Nunca versionar.
+dados/
+backup/
+*.json.bak
+estoque*.json
+antes-de-*.json
+
+# Planilhas e exportações (planilha original, backups .xlsx/.csv)
+*.xlsx
+*.xlsm
+*.xls
+*.csv
+
+# Pacote de distribuição (gerado)
+*.zip
+
+# Ferramentas locais
+.claude/
+node_modules/
+Thumbs.db
+desktop.ini
+~$*

@@ -1,0 +1,183 @@
+---
+
+name: estoque-planilha
+description: Analisa planilhas de controle de estoque de insumos de tecnologia e orienta sua transformação em uma aplicação web local. Deve ser usada antes de qualquer implementação.
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+# Skill: Auditoria e Evolução de Estoque
+
+## Missão
+
+Transformar uma planilha existente de controle de estoque em uma solução local mais simples, segura e eficiente, preservando os processos e dados relevantes existentes.
+
+## Princípio fundamental
+
+**Entender antes de implementar.**
+
+Nunca começar criando HTML, CSS ou JavaScript antes de analisar os arquivos fornecidos.
+
+## Processo obrigatório
+
+### Etapa 1 — Inventário
+
+Analise:
+
+* todas as abas;
+* cabeçalhos;
+* tipos de dados;
+* fórmulas;
+* células mescladas;
+* tabelas;
+* filtros;
+* validações;
+* categorias;
+* identificadores;
+* valores duplicados;
+* campos vazios;
+* padrões de preenchimento.
+
+Crie um inventário estruturado.
+
+### Etapa 2 — Modelo mental
+
+Determine:
+
+* quais são as entidades existentes;
+* quais representam produtos/insumos;
+* quais representam quantidades;
+* quais representam movimentações;
+* quais representam pessoas, setores ou locais;
+* quais campos são derivados;
+* quais campos parecem ser identificadores.
+
+Não invente entidades sem evidência.
+
+### Etapa 3 — Fluxos
+
+Identifique operações como:
+
+* entrada de estoque;
+* saída;
+* ajuste;
+* transferência;
+* cadastro;
+* edição;
+* consulta;
+* inventário;
+* reposição;
+* exportação.
+
+Classifique cada uma como:
+
+* identificada;
+* provável;
+* não identificada.
+
+### Etapa 4 — Problemas
+
+Procure especificamente por:
+
+* duplicidade;
+* inconsistência de nomenclatura;
+* fórmulas frágeis;
+* dados digitados manualmente que poderiam ser selecionados;
+* informações espalhadas em várias abas;
+* ausência de histórico;
+* dificuldade de localizar itens;
+* risco de alteração acidental;
+* dificuldade de auditoria.
+
+### Etapa 5 — Proposta
+
+Antes de escrever código, produza uma proposta contendo:
+
+1. arquitetura;
+2. telas;
+3. componentes;
+4. modelo de dados;
+5. operações;
+6. estratégia de persistência;
+7. importação;
+8. exportação;
+9. backup;
+10. roadmap.
+
+## Princípios técnicos
+
+Priorize:
+
+* HTML semântico;
+* CSS simples e responsivo;
+* JavaScript modular;
+* arquitetura local;
+* baixo acoplamento;
+* ausência de dependências desnecessárias;
+* funcionamento offline;
+* facilidade de backup;
+* facilidade de manutenção.
+
+Quando apropriado, considere:
+
+* IndexedDB para dados estruturados;
+* localStorage apenas para configurações simples;
+* XLSX/CSV para importação e exportação;
+* JSON para backup interno.
+
+Não introduza backend ou banco remoto sem necessidade explícita.
+
+## UX
+
+A interface deve priorizar:
+
+* pesquisa rápida;
+* filtros;
+* edição direta;
+* operações em poucos cliques;
+* feedback visual;
+* prevenção de erros;
+* confirmação para operações destrutivas;
+* visualização clara do saldo;
+* destaque para estoque crítico;
+* histórico quando houver necessidade de rastreabilidade.
+
+Evite dashboards decorativos e funcionalidades que não resolvam problemas reais.
+
+## Segurança dos dados
+
+Nunca modificar ou sobrescrever o arquivo original durante a análise.
+
+Toda transformação deve possuir uma estratégia de:
+
+* backup;
+* exportação;
+* recuperação;
+* validação.
+
+## Regra de comunicação
+
+Sempre separar:
+
+**FATO**
+Informação diretamente observada nos arquivos.
+
+**HIPÓTESE**
+Interpretação possível, mas não comprovada.
+
+**RECOMENDAÇÃO**
+Melhoria proposta com base na análise.
+
+## Regra de implementação
+
+Não implementar após a primeira análise automaticamente.
+
+Primeiro apresentar:
+
+> Diagnóstico → Proposta → Aprovação
+
+Somente depois:
+
+> Arquitetura → Implementação → Testes → Refinamento
+
+## Critério de sucesso
+
+A solução final deve tornar o controle de estoque mais rápido e menos sujeito a erros sem transformar uma planilha simples em um sistema excessivamente complexo.

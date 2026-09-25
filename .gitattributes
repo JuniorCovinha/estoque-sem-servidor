@@ -1,0 +1,8 @@
+# Código com LF; scripts do Windows com CRLF.
+* text=auto eol=lf
+*.cmd text eol=crlf
+
+# Biblioteca de terceiros: bytes exatos (o SHA-256 está no README).
+vendor/** -text
+
+*.png binary

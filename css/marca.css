@@ -1,0 +1,54 @@
+/* Grafismo orbital da marca Solar Cuidados no canto superior direito do topo.
+   Ativo original (img/grafismo-orbital.png, 2245x1587): sem redesenho, sem filtro de cor,
+   proporção preservada (só a altura é definida; a largura segue o arquivo). O recorte fica
+   por conta do contêiner. Medidas do arquivo usadas nos cálculos abaixo:
+   órbita externa = 1215 px de diâmetro; centro do sol em (1109.5, 793.5).
+     altura da imagem          = 1587 / 1215  = 1.3062 x --orb
+     centro -> borda direita   = 1135.5 / 1215 = 0.9346 x --orb
+     topo -> centro            = 793.5 / 1215  = 0.6531 x --orb
+   Ajuste fino: --orb (diâmetro da órbita externa), --orb-x (distância do centro do sol até a
+   borda direita do topo) e --orb-y (distância do centro do sol até o topo), além da opacidade. */
+
+/* Garante um contexto de empilhamento próprio: o grafismo (z-index -1) fica acima do fundo roxo
+   e abaixo de logo, abas e status, sem precisar mexer no z-index desses elementos. */
+.topo { isolation: isolate; }
+
+/* Camada de recorte própria: o .topo continua sem overflow hidden, então os anéis de foco
+   (box-shadow) das abas e do botão de status não são cortados. */
+.topo-grafismo {
+  --orb: 220px;
+  --orb-x: 62px;
+  --orb-y: 28px;
+  position: absolute; top: 0; right: 0; bottom: 0; left: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+.topo-grafismo img {
+  position: absolute;
+  top: calc(var(--orb-y) - var(--orb) * 0.6531);
+  right: calc(var(--orb-x) - var(--orb) * 0.9346);
+  height: calc(var(--orb) * 1.3062);
+  width: auto;
+  max-width: none;
+  max-height: none;
+  opacity: .55;
+  display: block;
+}
+
+/* Tela larga: o sol (~50 px) fica inteiro, centrado na altura do topo, num espaço reservado à direita
+   para não ficar atrás do texto do status; as órbitas aparecem como arcos recortados. */
+@media (min-width: 761px) {
+  .topo { padding-right: 128px; }
+}
+
+/* Tela estreita: o topo quebra em duas linhas e o status vai para a esquerda,
+   então o grafismo desce um pouco e mostra o sol inteiro no espaço livre à direita. */
+@media (max-width: 760px) {
+  .topo-grafismo { --orb: 240px; --orb-x: 52px; --orb-y: 24px; }
+}
+
+@media print {
+  .topo-grafismo { display: none; }
+}

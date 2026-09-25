@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Estoque TI</title>
+  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/marca.css">
+</head>
+<body>
+  <header class="topo">
+    <span class="topo-grafismo" aria-hidden="true"><img src="img/grafismo-orbital.png" alt="" aria-hidden="true" width="2245" height="1587" decoding="async"></span>
+    <div class="marca">
+      <img class="marca-logo" src="img/logo-solar-fundo-roxo.png" alt="Solar Cuidados" width="795" height="256">
+      <span class="marca-divisor" aria-hidden="true"></span>
+      <span class="marca-texto">
+        <span class="marca-nome">Estoque TI</span>
+        <span class="marca-sub">Infraestrutura</span>
+      </span>
+    </div>
+    <nav class="abas" aria-label="Seções">
+      <a href="#estoque" data-view="estoque">Estoque</a>
+      <a href="#movimentos" data-view="movimentos">Movimentações</a>
+      <a href="#descarte" data-view="descarte">Descarte</a>
+      <a href="#toner" data-view="toner">Toner</a>
+      <a href="#dados" data-view="dados">Dados e backup</a>
+    </nav>
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+  </header>
+
+  <main id="app" tabindex="-1"></main>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <noscript>Esta aplicação precisa de JavaScript habilitado.</noscript>
+
+  <script src="vendor/xlsx.full.min.js"></script>
+  <script src="js/util.js"></script>
+  <script src="js/ledger.js"></script>
+  <script src="js/importer.js"></script>
+  <script src="js/exporter.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/ui-common.js"></script>
+  <script src="js/ui-acoes.js"></script>
+  <script src="js/ui-estoque.js"></script>
+  <script src="js/ui-movimentos.js"></script>
+  <script src="js/ui-descarte.js"></script>
+  <script src="js/ui-toner.js"></script>
+  <script src="js/ui-dados.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
