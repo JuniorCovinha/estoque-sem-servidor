@@ -212,7 +212,7 @@
       if (feito) return; feito = true;
       const valor = input.value;
       if (salvar && valor.trim() !== String(original).trim()) {
-        try { await App.acao(d => L.editarItem(d, id, { [campo]: valor }), `${L.CAMPOS_EDITAVEIS[campo]} atualizado.`); }
+        try { await App.executar('editarItem', [id, { [campo]: valor }], `${L.CAMPOS_EDITAVEIS[campo]} atualizado.`); }
         catch (err) { UI.toast(err.message, 'erro'); atualizar(); }
       } else atualizar();
       if (proximo) {

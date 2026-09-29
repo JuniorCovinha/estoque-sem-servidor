@@ -69,7 +69,7 @@
         h('td', null, m.usuario || '—'),
         h('td', { class: 'mono' }, m.chamado || '—'),
         h('td', { class: 'quebra' }, m.obs || ''),
-        h('td', { class: 'fraco' }, fmtDataHora(m.criadoEm))));
+        h('td', { class: 'fraco' }, fmtDataHora(m.criadoEm), m.autor ? h('div', null, m.autor.nome) : null)));
     }
     corpo.appendChild(frag);
   }

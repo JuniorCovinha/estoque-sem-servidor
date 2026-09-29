@@ -1,7 +1,7 @@
 /* Regras de negócio: todo saldo muda somente por meio de um movimento registrado. */
 (function (App) {
   'use strict';
-  const { uid, agoraISO, hojeISO, limpa, valorOuNulo, chave, normalizaChamado, numero } = App.util;
+  const { uid, agoraISO, hojeISO, limpa, valorOuNulo, chave, normalizaChamado, numero, autorAtual } = App.util;
 
   const LOCAIS = { MATRIZ: 'Matriz', SAO_CRISTOVAO: 'São Cristóvão' };
   const STATUS = { EM_ESTOQUE: 'Em estoque', ENTREGUE: 'Entregue', MANUTENCAO: 'Manutenção', DESCARTADO: 'Descartado' };
@@ -69,6 +69,7 @@
     const m = Object.assign({
       id: uid(), tipo: null, itemId: null, item: null, local: null, delta: 0, quantidade: 0,
       usuario: null, chamado: null, data: hojeISO(), obs: null, importado: false, criadoEm: agoraISO(),
+      autor: autorAtual(), // quem registrou: vem da operação em execução (null na importação)
     }, mov);
     db.movimentos.push(m);
     db.atualizadoEm = m.criadoEm;
@@ -497,6 +498,26 @@
     });
   }
 
+  // Preenche a cor dos toners importados a partir da planilha (Dados e backup). Só toners com cor vazia
+  // (e fora da Lixeira) são alterados; os demais são ignorados, para a operação ser reaplicável.
+  // d = { arquivo, cores: [{ id, cor, linha, rgb }] }. Retorna quantos toners mudaram.
+  function atualizarCoresToners(db, d) {
+    const cores = d && Array.isArray(d.cores) ? d.cores : null;
+    if (!cores || !cores.length) throw erro('Nenhuma cor para atualizar.');
+    for (const c of cores) if (!c || typeof c.id !== 'string' || !valorOuNulo(c.cor)) throw erro('Lista de cores inválida.');
+    const arquivo = limpa(d.arquivo);
+    let n = 0;
+    for (const c of cores) {
+      const t = db.toners.find(x => x.id === c.id);
+      if (!t || t.cor || t.excluido) continue; // não sobrescreve cor preenchida
+      const m = editarToner(db, c.id, { cor: c.cor });
+      if (!m) continue;
+      m.obs += ` — pela planilha "${arquivo}" (linha ${c.linha}${c.rgb ? ', preenchimento #' + c.rgb : ''})`;
+      n++;
+    }
+    return n;
+  }
+
   // ---------- Consultas ----------
 
   function uniq(arr) {
@@ -559,7 +580,7 @@
     novoBanco, total, snap, getItem, itemPorSerie, registrar,
     cadastrarItem, editarItem, editarItensEmLote, avisosExclusao, excluirItem, restaurarItem, itensAtivos, tonersAtivos,
     entrada, entregar, devolver, enviarManutencao, retornarManutencao, descartar, editarDescarte, editarDescartesEmLote, ajustar,
-    adicionarToner, mudarStatusToner, editarToner, excluirToner, restaurarToner,
+    adicionarToner, mudarStatusToner, editarToner, excluirToner, restaurarToner, atualizarCoresToners,
     listas, categoriaUsaSerie, guardaDados, verificarConsistencia,
   };
 })(globalThis.App = globalThis.App || {});

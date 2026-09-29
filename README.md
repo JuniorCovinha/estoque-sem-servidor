@@ -19,6 +19,19 @@ Para ter um atalho na área de trabalho, rode uma vez **`Criar atalho na area de
    uma cópia da versão anterior em `backup/` (`.json` + `.xlsx`).
 
 Ao reabrir, o Chrome pode pedir para **Reconectar** a pasta (um clique no topo da tela).
+Enquanto a pasta estiver desconectada, as alterações ficam guardadas no navegador e são enviadas ao reconectar.
+
+## Sincronização (vários computadores)
+
+- Cada alteração é uma **operação** (ex.: "entregar item X a Fulana") com autor e horário. O topo mostra
+  "N alterações aguardando sincronização" ou "Sincronizado às HH:MM".
+- Se outra pessoa gravou o arquivo antes, as suas operações são **reaplicadas sobre a versão dela**, com as
+  mesmas regras. As que não fizerem mais sentido (ex.: o notebook já foi entregue por outra pessoa) vão para
+  **Dados e backup → Sincronização → Conflitos para revisar** (Tentar de novo / Descartar). Nada é descartado sozinho.
+- O autor vem de **Dados e backup → Quem está usando este computador** (até existir login Microsoft).
+- Importar a planilha e restaurar backup substituem tudo: só com a fila vazia (sincronize antes).
+- O `estoque.json` antigo é convertido automaticamente para o novo formato; uma cópia do arquivo antigo fica em
+  `backup/estoque-schema1-antes-da-migracao-*.json`.
 
 ## Uso diário
 
@@ -53,12 +66,17 @@ index.html            tela
 css/app.css           estilos (identidade visual Solar)
 css/marca.css         grafismo orbital no topo
 img/                  logo e grafismo originais da marca (sem alteração)
-js/                   util, ledger (regras), importer, exporter, store (gravação), ui-*
+js/                   util, ledger (regras), importer, exporter, ui-*
+js/sync.js            operações, lista branca, fila, rebase e conflitos
+js/remoto.js          armazenamento remoto: pasta (padrão), memória (testes), SharePoint/Graph (esqueleto)
+js/sessao.js          quem está usando (autor das operações)
+js/store.js           IndexedDB, pasta escolhida e ligação com a sincronização
 vendor/xlsx.full.min.js   SheetJS 0.20.3 (SHA-256 cc015130aa8521e7f088f88898eba949ccdcbfb38df0bd129b44b7273c3a6f41)
-test/                 testes: node test/testes.js e node test/testes-lote.js
+test/                 testes: node test/testes.js, node test/testes-lote.js e node test/testes-sync.js
 ```
 
 ## Segurança e LGPD
 
 - Os arquivos de dados e backups contêm nomes de colaboradores: mantenha-os só em pastas com acesso restrito à TI.
+- Cada movimentação registra o nome de quem a fez (e, com login Microsoft, o e-mail): também é dado pessoal.
 - Nenhum dado sai da máquina: não há chamadas de rede; a biblioteca de planilhas é local.

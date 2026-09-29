@@ -20,12 +20,12 @@
   }
 
   function linhasMovimentos(db) {
-    const cab = ['Data', 'Tipo', 'Categoria', 'Descrição', 'Nº de série', 'Local', 'Quantidade', 'Efeito no saldo', 'Usuário', 'Chamado', 'Observação', 'Registrado em', 'Origem', 'ID item'];
+    const cab = ['Data', 'Tipo', 'Categoria', 'Descrição', 'Nº de série', 'Local', 'Quantidade', 'Efeito no saldo', 'Usuário', 'Chamado', 'Observação', 'Registrado em', 'Registrado por', 'Origem', 'ID item'];
     const movs = db.movimentos.slice().sort((a, b) => String(b.data || '').localeCompare(String(a.data || '')) || String(b.criadoEm).localeCompare(String(a.criadoEm)));
     return [cab].concat(movs.map(m => [
       fmtData(m.data), L.TIPOS[m.tipo] || m.tipo, m.item?.categoria || '', m.item?.descricao || '', m.item?.serie || '',
       m.local ? L.LOCAIS[m.local] : '', m.quantidade || '', efeito(m), m.usuario || '', m.chamado || '', m.obs || '',
-      fmtDataHora(m.criadoEm), m.importado ? `Planilha${m.origem ? ` (${m.origem.aba}, linha ${m.origem.linha})` : ''}` : 'Aplicação', m.itemId || '',
+      fmtDataHora(m.criadoEm), m.autor?.nome || '', m.importado ? `Planilha${m.origem ? ` (${m.origem.aba}, linha ${m.origem.linha})` : ''}` : 'Aplicação', m.itemId || '',
     ]));
   }
 
@@ -62,7 +62,7 @@
   function montarPlanilha(db) {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, folha(linhasEstoque(db), [22, 30, 11, 24, 12, 16, 9, 12, 26, 8, 13, 7, 12, 30, 38]), 'Estoque');
-    XLSX.utils.book_append_sheet(wb, folha(linhasMovimentos(db), [11, 20, 22, 30, 22, 13, 10, 13, 28, 15, 40, 16, 30, 38]), 'Movimentações');
+    XLSX.utils.book_append_sheet(wb, folha(linhasMovimentos(db), [11, 20, 22, 30, 22, 13, 10, 13, 28, 15, 40, 16, 22, 30, 38]), 'Movimentações');
     XLSX.utils.book_append_sheet(wb, folha(linhasDescarte(db), [11, 20, 28, 20, 6, 10, 36, 12, 12, 14, 16, 16, 30]), 'Descarte');
     XLSX.utils.book_append_sheet(wb, folha(linhasToner(db), [16, 10, 18, 10, 30]), 'Toner');
     XLSX.utils.book_append_sheet(wb, folha(linhasLixeira(db), [8, 22, 30, 22, 18, 16, 30, 38]), 'Lixeira');
