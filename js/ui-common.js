@@ -103,11 +103,11 @@
         clear(dl); ref.rotuloPorId.clear(); ref.idPorRotulo.clear(); ref.idPorSerie.clear();
         const usados = new Map();
         for (const it of c.itens()) {
-          let r = App.uiRotuloItem(it);
+          let r = (c.rotuloDe || App.uiRotuloItem)(it); // rotuloDe/chavesExtra reaproveitam o seletor (ex.: pessoas)
           const n = (usados.get(r) || 0) + 1; usados.set(r, n);
           if (n > 1) r += ` #${n}`;
           ref.rotuloPorId.set(it.id, r); ref.idPorRotulo.set(r, it.id);
-          if (it.serie) ref.idPorSerie.set(chave(it.serie), it.id);
+          for (const k of (c.chavesExtra ? c.chavesExtra(it) : [it.serie])) if (k) ref.idPorSerie.set(chave(k), it.id);
           dl.appendChild(h('option', { value: r }));
         }
       };
@@ -214,7 +214,7 @@
         const v = valores[r.def.nome];
         if (v === '' || v === null || v === undefined) {
           r.wrap.classList.add('com-erro');
-          r.erroCampo.textContent = r.def.tipo === 'item' ? 'Selecione um item da lista.' : 'Campo obrigatório.';
+          r.erroCampo.textContent = r.def.tipo === 'item' ? (r.def.msgSelecione || 'Selecione um item da lista.') : 'Campo obrigatório.';
           faltando = faltando || r;
         }
       }

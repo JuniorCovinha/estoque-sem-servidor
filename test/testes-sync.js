@@ -392,6 +392,70 @@ teste('atualizarCoresToners: uma operação, não sobrescreve cor preenchida nem
 
 // Pasta falsa (File System Access API) em memória.
 const E = globalThis.App.exporter;
+secao('Integração com Pessoas');
+
+const pessoa = (nome, email) => ({ tipo: 'PESSOA', nome, email: email || null, departamento: 'Financeiro', unidade: 'MATRIZ' });
+
+teste('offline: cadastrar pessoa + entregar a ela → rebase com outro PC mexendo → mesmos ids e convergência', async () => {
+  const rem = R.memoria();
+  const A = pc(rem, 'Ana'), B = pc(rem, 'Bruno');
+  const nb = await B.exec('cadastrarItem', [notebook('PX-1')]);
+  await sync(B, rem); await sync(A, rem);
+  rem.offline = true;
+  const p = await A.exec('criarPessoa', [pessoa('Pessoa Teste Um', 'um@exemplo.test')]);
+  await A.exec('entregar', [nb.id, { pessoaId: p.id, data: DIA }]);
+  rem.offline = false;
+  await B.exec('criarPessoa', [pessoa('Pessoa Teste Dois', 'dois@exemplo.test')]);
+  await sync(B, rem);
+  const r = await sync(A, rem);
+  assert.strictEqual(r.conflitos, 0);
+  const pA = A.db.pessoas.find(x => x.email === 'um@exemplo.test');
+  assert.strictEqual(pA.id, p.id, 'id da pessoa preservado no rebase');
+  const it = A.db.itens.find(i => i.id === nb.id);
+  assert.strictEqual(it.responsavelId, p.id);
+  assert.strictEqual(it.responsavelAtual, 'Pessoa Teste Um');
+  assert.strictEqual(A.db.pessoas.length, 2, 'cadastro do outro PC preservado');
+  assert.deepStrictEqual(L.itensComPessoa(A.db, p.id).map(x => x.item.id), [nb.id]);
+  await sync(B, rem);
+  assert.strictEqual(JSON.stringify(B.db), JSON.stringify(A.db), 'os dois PCs convergem');
+});
+
+teste('offline: dois PCs cadastram o mesmo e-mail → o segundo e a entrega que depende dele viram conflito', async () => {
+  const rem = R.memoria();
+  const A = pc(rem, 'Ana'), B = pc(rem, 'Bruno');
+  const nb = await A.exec('cadastrarItem', [notebook('PX-2')]);
+  await sync(A, rem); await sync(B, rem);
+  rem.offline = true;
+  await A.exec('criarPessoa', [pessoa('Pessoa Repetida', 'rep@exemplo.test')]);
+  const pB = await B.exec('criarPessoa', [pessoa('Pessoa Repetida B', 'rep@exemplo.test')]);
+  await B.exec('entregar', [nb.id, { pessoaId: pB.id, data: DIA }]);
+  rem.offline = false;
+  await sync(A, rem);
+  const r = await sync(B, rem);
+  assert.strictEqual(r.conflitos, 2);
+  assert.ok(/já pertence/.test(B.conflitos[0].erro), B.conflitos[0].erro);
+  assert.ok(/não encontrada/.test(B.conflitos[1].erro), B.conflitos[1].erro);
+  assert.strictEqual(B.db.pessoas.length, 1);
+  assert.strictEqual(B.db.itens[0].status, 'EM_ESTOQUE', 'entrega dependente não foi aplicada pela metade');
+});
+
+teste('vincular nomes antigos como operação é reaplicável e idempotente', async () => {
+  const rem = R.memoria();
+  const A = pc(rem, 'Ana');
+  const nb = await A.exec('cadastrarItem', [notebook('PX-3')]);
+  await A.exec('entregar', [nb.id, { usuario: 'Nome Antigo (Setor X)', data: DIA }]);
+  await sync(A, rem);
+  const res = await A.exec('vincularNomesAntigos', [{ decisoes: [{ acao: 'criar', nomes: ['Nome Antigo (Setor X)'], pessoa: { nome: 'Nome Antigo', departamento: 'Setor X' } }] }]);
+  assert.strictEqual(res.pessoasCriadas, 1);
+  await sync(A, rem);
+  const B = pc(rem, 'Bruno');
+  await sync(B, rem);
+  assert.strictEqual(B.db.pessoas.length, 1);
+  assert.strictEqual(B.db.itens[0].responsavelId, B.db.pessoas[0].id);
+  await sync(A, rem);
+  assert.strictEqual(remotoDb(rem).db.pessoas.length, 1, 'não duplica ao sincronizar de novo');
+});
+
 function pastaFalsa() {
   const arquivos = new Map(), dirs = new Map();
   const naoAchou = () => { const e = new Error('não encontrado'); e.name = 'NotFoundError'; return e; };

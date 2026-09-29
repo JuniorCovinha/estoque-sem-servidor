@@ -302,7 +302,7 @@ if (fs.existsSync(planilha)) {
     console.log(`      itens: ${db.itens.length}, unidades em estoque: ${unidades}, movimentos: ${db.movimentos.length}, toners: ${db.toners.length}`);
     // Exportação roda sem erro e mantém as abas
     const wb = E.montarPlanilha(db);
-    assert.deepStrictEqual(wb.SheetNames, ['Estoque', 'Movimentações', 'Descarte', 'Toner', 'Lixeira']);
+    assert.deepStrictEqual(wb.SheetNames, ['Estoque', 'Movimentações', 'Descarte', 'Toner', 'Lixeira', 'Pessoas']);
     const bin = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
     const volta = XLSX.read(bin, { type: 'array' });
     assert.strictEqual(XLSX.utils.sheet_to_json(volta.Sheets['Estoque']).length, db.itens.length);

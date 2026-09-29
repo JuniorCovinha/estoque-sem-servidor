@@ -41,6 +41,11 @@
     excluirToner: 'Exclusão de toner',
     restaurarToner: 'Restauração de toner',
     atualizarCoresToners: 'Cores dos toners pela planilha',
+    criarPessoa: 'Cadastro de pessoa',
+    editarPessoa: 'Edição de pessoa',
+    desativarPessoa: 'Desativação de pessoa',
+    reativarPessoa: 'Reativação de pessoa',
+    vincularNomesAntigos: 'Vínculo de nomes antigos às pessoas',
   }).map(([nome, rotulo]) => [nome, { rotulo, fn: null }]));
 
   // fn opcional: por padrão usa App.ledger[nome] (resolvido na hora de aplicar).
@@ -150,7 +155,7 @@
     return obj;
   }
 
-  const vazio = db => !db || (!db.itens.length && !db.movimentos.length && !db.toners.length);
+  const vazio = db => !db || (!db.itens.length && !db.movimentos.length && !db.toners.length && !(db.pessoas || []).length);
 
   // ---------- Motor ----------
   /**
