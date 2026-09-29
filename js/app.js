@@ -85,12 +85,15 @@
     if (!c || resolvendo) return;
     resolvendo = true;
     try {
+      // Destaca a versão mais recente (a mais provável de ser a certa); a outra vai para backup/.
+      const navegadorMaisNovo = String(c.navegador || '') > String(c.arquivo || '');
       const escolha = await UI.escolher({
         titulo: 'Duas versões dos dados',
-        mensagem: `O arquivo estoque.json da pasta foi alterado em ${fmtDataHora(c.arquivo)} e a cópia deste navegador em ${fmtDataHora(c.navegador)}. Qual versão usar? A outra será guardada em backup/.`,
+        mensagem: `O arquivo estoque.json da pasta foi alterado em ${fmtDataHora(c.arquivo)} e a cópia deste navegador em ${fmtDataHora(c.navegador)}. ` +
+          `A mais recente é a ${navegadorMaisNovo ? 'do navegador' : 'da pasta'}. Qual versão usar? A outra será guardada em backup/.`,
         opcoes: [
-          { valor: 'navegador', rotulo: 'Usar a cópia do navegador' },
-          { valor: 'arquivo', rotulo: 'Usar o arquivo da pasta', primario: true },
+          { valor: 'navegador', rotulo: 'Usar a cópia do navegador' + (navegadorMaisNovo ? ' (mais recente)' : ''), primario: navegadorMaisNovo },
+          { valor: 'arquivo', rotulo: 'Usar o arquivo da pasta' + (navegadorMaisNovo ? '' : ' (mais recente)'), primario: !navegadorMaisNovo },
         ],
       });
       await S.resolverConflito(escolha === 'navegador' ? 'navegador' : 'arquivo');
