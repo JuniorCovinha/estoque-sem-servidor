@@ -44,13 +44,20 @@
   // Texto para mensagens de série repetida: avisa quando o outro item está na Lixeira.
   const descreveOutro = o => `${o.categoria} — ${o.descricao}${o.excluido ? ' (está na Lixeira: restaure-o em vez de cadastrar de novo)' : ''}`;
 
+  // Listas fixas são consultadas só pelas chaves próprias (Object.hasOwn): "toString", "__proto__",
+  // "constructor" etc. vindos de dados não passam (CWE-1321 / CWE-20).
+  const tem = (lista, k) => typeof k === 'string' && Object.hasOwn(lista, k);
+
   function checaLocal(local) {
-    if (!LOCAIS[local]) throw erro('Selecione o local (Matriz ou São Cristóvão).');
+    if (!tem(LOCAIS, local)) throw erro('Selecione o local (Matriz ou São Cristóvão).');
   }
+
+  const MAX_QTD = 100000; // limite por lançamento (evita valores absurdos digitados ou vindos de dados)
 
   function checaQtd(q) {
     const n = numero(q, NaN);
     if (!Number.isInteger(n) || n <= 0) throw erro('Informe uma quantidade inteira maior que zero.');
+    if (n > MAX_QTD) throw erro(`Quantidade grande demais (máximo ${MAX_QTD.toLocaleString('pt-BR')} por lançamento).`);
     return n;
   }
 
@@ -117,7 +124,7 @@
   function alteracoesItem(db, item, campos) {
     const alteracoes = [];
     for (const [campo, valor] of Object.entries(campos)) {
-      if (!CAMPOS_EDITAVEIS[campo]) continue;
+      if (!tem(CAMPOS_EDITAVEIS, campo)) continue;
       const novo = ((campo === 'categoria' || campo === 'descricao' || campo === 'proprietario') ? limpa(valor) : valorOuNulo(valor)) || null;
       if ((campo === 'categoria' || campo === 'descricao') && !novo) throw erro(`${CAMPOS_EDITAVEIS[campo]} não pode ficar vazio.`);
       if (campo === 'serie') {
@@ -386,7 +393,7 @@
     const r = {};
     for (const [k, v] of Object.entries(campos || {})) {
       if (!limpa(v)) continue;
-      if (!permitidos.includes(k)) throw erro(`${rotulos[k] || k} não pode ser alterado em lote.`);
+      if (!permitidos.includes(k)) throw erro(`${tem(rotulos, k) ? rotulos[k] : k} não pode ser alterado em lote.`);
       r[k] = v;
     }
     if (!Object.keys(r).length) throw erro('Preencha ao menos um campo para alterar.');
@@ -426,6 +433,7 @@
     checaLocal(d.local);
     const nova = numero(d.novaQuantidade, NaN);
     if (!Number.isInteger(nova) || nova < 0) throw erro('Informe a quantidade contada (inteiro ≥ 0).');
+    if (nova > MAX_QTD) throw erro(`Quantidade grande demais (máximo ${MAX_QTD.toLocaleString('pt-BR')}).`);
     const motivo = valorOuNulo(d.motivo);
     if (!motivo) throw erro('Informe o motivo do ajuste.');
     const delta = nova - item.saldo[d.local];
@@ -466,7 +474,7 @@
   function adicionarToner(db, d) {
     const modelo = limpa(d.modelo);
     if (!modelo) throw erro('Informe o modelo do toner.');
-    const status = STATUS_TONER[d.status] ? d.status : 'NOVO';
+    const status = tem(STATUS_TONER, d.status) ? d.status : 'NOVO';
     const q = checaQtd(d.quantidade || 1);
     const criados = [];
     for (let i = 0; i < q; i++) {
@@ -483,7 +491,7 @@
 
   function mudarStatusToner(db, id, status, obs) {
     const t = getToner(db, id);
-    if (!STATUS_TONER[status]) throw erro('Status inválido.');
+    if (!tem(STATUS_TONER, status)) throw erro('Status inválido.');
     if (t.status === status) return null;
     const de = t.status;
     t.status = status;
@@ -498,7 +506,7 @@
     const rot = { modelo: 'Modelo', cor: 'Cor', impressora: 'Impressora' };
     const alteracoes = [];
     for (const k of Object.keys(rot)) {
-      if (!(k in campos)) continue;
+      if (!Object.hasOwn(campos, k)) continue;
       const novo = k === 'modelo' ? limpa(campos[k]) : valorOuNulo(campos[k]);
       if (k === 'modelo' && !novo) throw erro('Modelo não pode ficar vazio.');
       if ((t[k] ?? null) !== (novo ?? null)) { alteracoes.push({ campo: k, rotulo: rot[k], de: t[k] ?? null, para: novo ?? null }); t[k] = novo; }
@@ -598,7 +606,7 @@
     const mesclado = {};
     for (const k of Object.keys(CAMPOS_PESSOA)) mesclado[k] = d[k] !== undefined ? d[k] : p[k];
     const novo = dadosPessoa(db, mesclado, p);
-    const rot = (k, v) => k === 'tipo' ? TIPOS_PESSOA[v] : k === 'unidade' ? (LOCAIS[v] || '') : (v ?? '');
+    const rot = (k, v) => k === 'tipo' ? TIPOS_PESSOA[v] : k === 'unidade' ? (tem(LOCAIS, v) ? LOCAIS[v] : '') : (v ?? '');
     const alteracoes = [];
     for (const k of Object.keys(CAMPOS_PESSOA)) {
       if ((p[k] ?? null) !== (novo[k] ?? null)) alteracoes.push({ campo: k, rotulo: CAMPOS_PESSOA[k], de: p[k] ?? null, para: novo[k] ?? null });
@@ -792,15 +800,26 @@
     if (!plano.length) throw erro('Nenhum vínculo a aplicar (todos ignorados).');
     const lote = uid();
     const res = { pessoasCriadas: 0, movimentosVinculados: 0, itensVinculados: 0 };
+    const pulados = [];
+    const casaMov = (g, m) => !m.pessoaId && m.usuario && g.chaves.has(chave(m.usuario));
+    const casaItem = (g, it) => !it.responsavelId && it.responsavelAtual && g.chaves.has(chave(it.responsavelAtual));
+    let aplicados = 0;
     for (const g of plano) {
+      // Criar/setor sem nenhum registro sem vínculo com esses nomes AGORA (ex.: outro computador já fez o
+      // mesmo vínculo e a operação está sendo reaplicada): não cria cadastro vazio/duplicado; o grupo é pulado.
+      if (!g.pessoa && !db.movimentos.some(m => casaMov(g, m)) && !db.itens.some(it => casaItem(g, it))) {
+        pulados.push(g.nomes);
+        continue;
+      }
+      aplicados++;
       const p = g.pessoa || inserirPessoa(db, g.dados, 'migracao');
       if (!g.pessoa) res.pessoasCriadas++;
       let nm = 0, ni = 0;
       for (const m of db.movimentos) {
-        if (!m.pessoaId && m.usuario && g.chaves.has(chave(m.usuario))) { m.pessoaId = p.id; nm++; }
+        if (casaMov(g, m)) { m.pessoaId = p.id; nm++; }
       }
       for (const it of db.itens) {
-        if (!it.responsavelId && it.responsavelAtual && g.chaves.has(chave(it.responsavelAtual))) {
+        if (casaItem(g, it)) {
           it.responsavelId = p.id; it.responsavelAtual = p.nome; it.atualizadoEm = agoraISO(); ni++;
         }
       }
@@ -810,6 +829,9 @@
         obs: `Nomes antigos vinculados a ${p.nome}: ${g.nomes.map(n => `"${n}"`).join(', ')} — ${nm} movimentação(ões) e ${ni} item(ns)${g.pessoa ? '' : ' (cadastro criado nesta operação)'}`,
       });
     }
+    // Todos os grupos já vinculados: erro, para virar conflito visível (em vez de sumir em silêncio).
+    if (!aplicados) throw erro('Esses nomes antigos já foram vinculados (provavelmente em outro computador). Nada foi alterado.');
+    if (pulados.length) res.gruposJaVinculados = pulados; // pulados: nenhum registro sem vínculo com esses nomes
     return res;
   }
 
@@ -886,7 +908,7 @@
   }
 
   App.ledger = {
-    LOCAIS, STATUS, TIPOS, STATUS_TONER, DADOS_APAGADOS, CAMPOS_EDITAVEIS, CAMPOS_LOTE_ITEM, CAMPOS_LOTE_DESCARTE,
+    LOCAIS, STATUS, TIPOS, MAX_QTD, STATUS_TONER, DADOS_APAGADOS, CAMPOS_EDITAVEIS, CAMPOS_LOTE_ITEM, CAMPOS_LOTE_DESCARTE,
     novoBanco, total, snap, getItem, itemPorSerie, registrar,
     cadastrarItem, editarItem, editarItensEmLote, avisosExclusao, excluirItem, restaurarItem, itensAtivos, tonersAtivos,
     entrada, entregar, devolver, enviarManutencao, retornarManutencao, descartar, editarDescarte, editarDescartesEmLote, ajustar,

@@ -54,8 +54,21 @@
       sy.estado.ultimaSync ? `Última sincronização: ${fmtDataHora(sy.estado.ultimaSync)}.` : null,
       !conectado && e.conexao !== 'sem-pasta' && e.conexao !== 'indisponivel' ? 'Sem conexão com a pasta: as alterações ficam guardadas neste navegador e são enviadas ao reconectar.' : null,
     ].filter(Boolean);
+    const bl = sy.estado.bloqueio;
+    const copias = e.copiasExtras || [];
     return h('section', { class: 'secao' },
       h('h2', null, 'Sincronização'),
+      bl && bl.codigo === 'estado-invalido' ? h('div', { class: 'aviso danger' },
+        h('p', { style: 'margin:0 0 8px' }, bl.mensagem),
+        h('p', { style: 'margin:0 0 8px' }, 'Para sair desta situação: "Restaurar backup (.json)…" (em Exportar e backup, abaixo) ou carregue os dados do arquivo estoque.json da pasta. As alterações que estavam só neste navegador não são reaplicadas (a cópia guardada permite recuperá-las com ajuda da TI).'),
+        h('div', { class: 'linha-botoes' },
+          h('button', { class: 'btn', type: 'button', disabled: !conectado, onclick: recomecarDoArquivo }, 'Carregar do arquivo da pasta'))) : null,
+      sy.alertas.map(a => h('div', { class: 'aviso danger' },
+        h('p', { style: 'margin:0 0 8px' }, a.mensagem, h('span', { class: 'fraco' }, ` (${fmtDataHora(a.em)})`)),
+        h('div', { class: 'linha-botoes' }, h('button', { class: 'btn pequeno', type: 'button', onclick: () => dispensarAlerta(a.id) }, 'Entendi')))),
+      copias.length ? h('div', { class: 'aviso warn' },
+        `Há outros arquivos de dados na pasta: ${copias.join(', ')}. Normalmente são cópias de conflito criadas pelo OneDrive quando dois computadores gravaram ao mesmo tempo. ` +
+        'Eles NÃO são mesclados automaticamente: abra-os para conferir se há lançamentos que faltam no estoque.json, lance o que faltar e depois mova as cópias para a pasta backup/.') : null,
       h('p', null, 'Cada alteração é registrada como uma operação e enviada para o arquivo da pasta. Se outra pessoa alterou o arquivo antes, suas operações são reaplicadas sobre a versão dela; as que não fizerem mais sentido (ex.: item já entregue por outra pessoa) aparecem abaixo para revisão.'),
       h('ul', { class: 'lista-simples' }, linhas.map(l => h('li', null, l))),
       h('div', { class: 'linha-botoes' },
@@ -64,6 +77,21 @@
       conflitos.length
         ? h('div', null, conflitos.map(cartaoConflito))
         : h('p', { class: 'fraco' }, 'Nenhum conflito.'));
+  }
+
+  async function recomecarDoArquivo() {
+    const ok = await UI.confirmar({
+      titulo: 'Carregar do arquivo da pasta?', perigo: true, ok: 'Carregar',
+      mensagem: 'Os dados inválidos deste navegador serão deixados de lado (a cópia guardada continua no navegador) e os dados do estoque.json da pasta passam a ser usados.',
+    });
+    if (!ok) return;
+    try { await S.recomecarDoArquivo(); UI.toast('Dados carregados do arquivo da pasta.'); } catch (e) { UI.toast(e.message, 'erro'); }
+    App.render();
+  }
+
+  async function dispensarAlerta(id) {
+    try { await S.dispensarAlerta(id); } catch (e) { UI.toast(e.message, 'erro'); }
+    App.render();
   }
 
   async function sincronizarAgora() {
@@ -339,6 +367,7 @@
   async function restaurar(arquivo) {
     if (!arquivo) return;
     let novo;
+    if (arquivo.size > App.sync.LIMITE_TEXTO) return UI.toast(`Backup inválido: arquivo grande demais (máximo ${App.sync.LIMITE_TEXTO / 1048576} MB).`, 'erro');
     try {
       novo = S.validarBanco(App.sync.extrairBanco(JSON.parse(await arquivo.text())));
     } catch (e) {

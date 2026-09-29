@@ -49,7 +49,11 @@
     const aguardando = n ? plural(n, 'alteração aguardando', 'alterações aguardando') + ' sincronização' : null;
     const juntar = (...partes) => partes.filter(Boolean).join(' · ');
     let cls, txt, botao = null;
-    if (e.erro) {
+    const bl = sy.estado.bloqueio;
+    const na = sy.alertas.length;
+    if (bl) {
+      cls = 'erro'; txt = bl.codigo === 'estado-invalido' ? 'Dados do navegador inválidos: alterações bloqueadas (veja Dados e backup)' : bl.mensagem;
+    } else if (e.erro) {
       cls = 'erro'; txt = juntar(e.erro, aguardando);
       botao = e.conexao === 'reconectar' ? ['Reconectar', () => conectar(S.reconectar)]
         : e.conexao === 'conectado' ? ['Tentar de novo', () => conectar(S.sincronizar)] : null;
@@ -63,6 +67,7 @@
     statusEl.className = 'status ' + cls;
     preencher(statusEl, h('span', { class: 'ponto', 'aria-hidden': 'true' }), h('span', null, txt),
       nc ? h('a', { href: '#dados', style: 'color:inherit' }, plural(nc, 'conflito para revisar', 'conflitos para revisar')) : null,
+      na ? h('a', { href: '#dados', style: 'color:inherit' }, plural(na, 'aviso da sincronização', 'avisos da sincronização')) : null,
       botao ? h('button', { type: 'button', class: 'btn pequeno', onclick: botao[1] }, botao[0]) : '');
     if (sy.estado.conflitoVersoes && !resolvendo) setTimeout(resolverVersoes, 0);
   }
@@ -96,7 +101,9 @@
           { valor: 'arquivo', rotulo: 'Usar o arquivo da pasta' + (navegadorMaisNovo ? '' : ' (mais recente)'), primario: !navegadorMaisNovo },
         ],
       });
-      await S.resolverConflito(escolha === 'navegador' ? 'navegador' : 'arquivo');
+      // Sem escolha (diálogo fechado sem botão): não decide nada; a pergunta volta a aparecer.
+      if (escolha !== 'navegador' && escolha !== 'arquivo') return;
+      await S.resolverConflito(escolha);
       UI.toast('Dados sincronizados.');
     } catch (e) {
       UI.toast(e.message || String(e), 'erro');
@@ -121,8 +128,19 @@
     if (S.sync.estado.sincronizando) { e.preventDefault(); e.returnValue = ''; }
   });
   window.addEventListener('online', () => { S.sincronizar(); });
-  window.addEventListener('hashchange', navegar);
   S.onStatus(renderStatus);
+
+  // Outra aba/janela já está com a aplicação aberta: esta não mostra dados nem permite alterações.
+  function telaOutraAba() {
+    const abas = document.querySelector('.abas');
+    if (abas) abas.hidden = true;
+    clear(main);
+    main.appendChild(h('section', { class: 'secao' },
+      h('h2', null, 'A aplicação já está aberta em outra aba/janela'),
+      h('p', null, 'Para que uma aba não apague as alterações da outra, só uma pode ficar aberta por vez neste navegador. Use a outra aba, ou feche-a e clique em "Tentar de novo".'),
+      h('div', { class: 'linha-botoes' }, h('button', { class: 'btn primario', type: 'button', onclick: () => location.reload() }, 'Tentar de novo'))));
+    renderStatus();
+  }
 
   (async function iniciar() {
     try {
@@ -131,6 +149,22 @@
       console.error(e);
       UI.toast('Problema ao abrir os dados: ' + (e.message || e), 'erro');
     }
-    navegar();
+    const bl = S.sync.estado.bloqueio;
+    if (bl && bl.codigo === 'outra-aba') return telaOutraAba();
+    window.addEventListener('hashchange', navegar);
+    // Estado local inválido: vai direto para as instruções em Dados e backup (o hashchange navega).
+    if (bl && location.hash !== '#dados') location.hash = '#dados';
+    else navegar();
+    // Traz as alterações dos outros computadores: a cada 5 min com a aba visível, ao voltar para a aba e ao focar.
+    // Só redesenha se os dados mudaram e o usuário não está no meio de uma digitação/diálogo.
+    const ocupado = () => document.querySelector('dialog[open]') || (document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName));
+    S.ligarSincronizacaoPeriodica({
+      documento: document, janela: window,
+      sincronizar: async () => {
+        const antes = S.db.atualizadoEm;
+        await S.sincronizar();
+        if (S.db.atualizadoEm !== antes && !ocupado()) App.render();
+      },
+    });
   })();
 })(globalThis.App = globalThis.App || {});

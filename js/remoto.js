@@ -81,11 +81,27 @@
       } catch (e) { return { db: null, legado: false }; } // ilegível: vai para o backup como está
     }
 
+    // Gravações deste processo passam uma de cada vez pelo trecho "confere etag → escreve".
+    const exclusivo = App.sync.criarFila();
+    const etagAtual = atual => (atual ? atual.etag : null);
+
+    // Outros estoque*.json na pasta (ex.: cópias de conflito do OneDrive "estoque-NOMEDOPC.json"): só avisa.
+    async function copiasExtras() {
+      const dir = o.obterPasta();
+      if (!dir || typeof dir.values !== 'function') return [];
+      const nomes = [];
+      for await (const x of dir.values()) {
+        if (x && x.kind === 'file' && /^estoque.*\.json$/i.test(x.name) && x.name.toLowerCase() !== ARQUIVO) nomes.push(x.name);
+      }
+      return nomes.sort();
+    }
+
     return {
       nome: 'Pasta',
       arquivo: ARQUIVO,
       disponivel: () => !!o.obterPasta(),
       backup,
+      copiasExtras,
       async ler() {
         const dir = o.obterPasta();
         if (!dir) throw App.sync.erroOffline('Pasta de dados desconectada.');
@@ -94,8 +110,10 @@
       async gravar(texto, etagEsperado) {
         const dir = o.obterPasta();
         if (!dir) throw App.sync.erroOffline('Pasta de dados desconectada.');
+        const esperado = etagEsperado ?? null;
         const atual = await lerArquivo(dir);
-        if ((atual ? atual.etag : null) !== (etagEsperado ?? null)) throw App.sync.erroPrecondicao();
+        if (etagAtual(atual) !== esperado) throw App.sync.erroPrecondicao();
+        // Backups ANTES da checagem final (podem demorar: .xlsx, OneDrive).
         if (atual) {
           const { db, legado } = bancoDoTexto(atual.texto);
           if (legado) await backup('estoque-schema1-antes-da-migracao', atual.texto, db);
@@ -105,8 +123,13 @@
             await o.ultimoBackup.gravar(hoje);
           }
         }
-        await escrever(dir, ARQUIVO, texto);
-        return { etag: etagDe(texto) };
+        // Relê e confere o etag imediatamente antes de escrever, sem outra gravação deste processo no meio.
+        // (Entre máquinas não há trava: o OneDrive sincroniza depois; o modo definitivo é o Graph com If-Match.)
+        return exclusivo(async () => {
+          if (etagAtual(await lerArquivo(dir)) !== esperado) throw App.sync.erroPrecondicao();
+          await escrever(dir, ARQUIVO, texto);
+          return { etag: etagDe(texto) };
+        });
       },
     };
   }
