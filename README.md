@@ -29,9 +29,17 @@ Enquanto a pasta estiver desconectada, as alterações ficam guardadas no navega
   mesmas regras. As que não fizerem mais sentido (ex.: o notebook já foi entregue por outra pessoa) vão para
   **Dados e backup → Sincronização → Conflitos para revisar** (Tentar de novo / Descartar). Nada é descartado sozinho.
 - O autor vem de **Dados e backup → Quem está usando este computador** (até existir login Microsoft).
-- Importar a planilha e restaurar backup substituem tudo: só com a fila vazia (sincronize antes).
+- Importar a planilha e restaurar backup substituem tudo: só com a fila vazia. A aplicação sincroniza antes e guarda
+  uma cópia do arquivo da pasta em `backup/arquivo-antes-de-substituir-*.json` (alterações de outros PCs ficam recuperáveis).
 - O `estoque.json` antigo é convertido automaticamente para o novo formato; uma cópia do arquivo antigo fica em
   `backup/estoque-schema1-antes-da-migracao-*.json`.
+- Cada computador guarda por 90 dias as operações que ele já confirmou. Se o arquivo da pasta "voltar no tempo"
+  (conflito do OneDrive, cópia antiga restaurada, versão antiga da aplicação gravando o formato antigo), elas são
+  reaplicadas, com aviso em **Dados e backup** e cópia do arquivo lido em `backup/`. Cópias de conflito do OneDrive
+  (`estoque-NOMEDOPC.json`) são apontadas ali, mas nunca mescladas sozinhas.
+- Arquivo de dados inválido (estrutura, saldos, tipos) é recusado antes de ser usado: os dados do computador são mantidos.
+- Só uma aba/janela da aplicação por navegador; a segunda mostra um aviso e não altera nada.
+- Com a aba visível, a aplicação busca as alterações dos outros computadores a cada 5 minutos e ao voltar para a aba.
 
 ## Uso diário
 
@@ -78,7 +86,8 @@ js/remoto.js          armazenamento remoto: pasta (padrão), memória (testes), 
 js/sessao.js          quem está usando (autor das operações)
 js/store.js           IndexedDB, pasta escolhida e ligação com a sincronização
 vendor/xlsx.full.min.js   SheetJS 0.20.3 (SHA-256 cc015130aa8521e7f088f88898eba949ccdcbfb38df0bd129b44b7273c3a6f41)
-test/                 testes: node test/testes.js, testes-lote.js, testes-sync.js e testes-pessoas.js
+test/                 testes: node test/testes.js, testes-lote.js, testes-sync.js, testes-pessoas.js e testes-revisao.js
+                      (poc-revisao.js: provas de conceito da revisão; deve reportar 0 reproduzidos)
 ```
 
 ## Segurança e LGPD
