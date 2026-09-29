@@ -31,6 +31,8 @@ Ao reabrir, o Chrome pode pedir para **Reconectar** a pasta (um clique no topo d
 | Corrigir texto (categoria, descrição, série, patrimônio, posição) | dois cliques na célula |
 | Alterar vários itens de uma vez (categoria, posição…) | marque as linhas (Shift+clique = intervalo) → **Editar em lote** |
 | Marcar vários descartes (ex.: "Dados apagados: Não se aplica") | tela **Descarte** → marque as linhas → **Editar em lote** |
+| Excluir item ou toner (vai para a Lixeira) | menu **⋯ → Excluir…** |
+| Consultar ou recuperar excluídos | aba **Lixeira → Restaurar** |
 | Preencher a cor dos toners já importados | **Dados e backup → Atualizar cores dos toners pela planilha…** |
 | Ver tudo o que aconteceu com um item | menu **⋯ → Histórico** |
 | Planilha para backup | **Dados e backup → Baixar planilha (.xlsx)** |

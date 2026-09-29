@@ -9,6 +9,7 @@
     SALDO_INICIAL: 'Saldo inicial', ENTRADA: 'Entrada', ENTREGA: 'Entrega', DEVOLUCAO: 'Devolução',
     MANUTENCAO: 'Envio p/ manutenção', RETORNO_MANUTENCAO: 'Retorno da manutenção',
     DESCARTE: 'Descarte', AJUSTE: 'Ajuste', EDICAO: 'Edição', TONER: 'Toner',
+    EXCLUSAO: 'Exclusão (lixeira)', RESTAURACAO: 'Restauração da lixeira',
   };
   const STATUS_TONER = { NOVO: 'Novo', EM_USO: 'Em uso', DESCARTE: 'Descarte' };
   const DADOS_APAGADOS = { NAO_INFORMADO: 'Não informado', SIM: 'Sim', NAO: 'Não', NAO_SE_APLICA: 'Não se aplica' };
@@ -28,11 +29,20 @@
     return item ? { categoria: item.categoria, descricao: item.descricao, serie: item.serie } : null;
   }
 
+  // Itens e toners excluídos ficam na Lixeira (exclusão reversível): somem das listas, mas o registro e o histórico ficam.
+  const ativo = x => !x.excluido;
+  const itensAtivos = db => db.itens.filter(ativo);
+  const tonersAtivos = db => db.toners.filter(ativo);
+
   function getItem(db, id) {
     const it = db.itens.find(i => i.id === id);
     if (!it) throw erro('Item não encontrado.');
+    if (it.excluido) throw erro('Este item está na Lixeira. Restaure-o antes de alterar.');
     return it;
   }
+
+  // Texto para mensagens de série repetida: avisa quando o outro item está na Lixeira.
+  const descreveOutro = o => `${o.categoria} — ${o.descricao}${o.excluido ? ' (está na Lixeira: restaure-o em vez de cadastrar de novo)' : ''}`;
 
   function checaLocal(local) {
     if (!LOCAIS[local]) throw erro('Selecione o local (Matriz ou São Cristóvão).');
@@ -78,7 +88,7 @@
     const serie = valorOuNulo(d.serie);
     if (serie) {
       const outro = itemPorSerie(db, serie);
-      if (outro) throw erro(`Já existe um item com o nº de série ${serie}: ${outro.categoria} — ${outro.descricao}.`);
+      if (outro) throw erro(`Já existe um item com o nº de série ${serie}: ${descreveOutro(outro)}.`);
     }
     checaLocal(d.local);
     const data = checaData(d.data || hojeISO());
@@ -112,7 +122,7 @@
       if (campo === 'serie') {
         if (item.controle !== 'unidade' && novo) throw erro('Itens controlados por quantidade não têm nº de série.');
         const outro = novo && itemPorSerie(db, novo, item.id);
-        if (outro) throw erro(`Nº de série ${novo} já pertence a: ${outro.categoria} — ${outro.descricao}.`);
+        if (outro) throw erro(`Nº de série ${novo} já pertence a: ${descreveOutro(outro)}.`);
       }
       const antigo = item[campo] ?? null;
       if (antigo === novo) continue;
@@ -151,18 +161,39 @@
     });
   }
 
-  function podeExcluir(db, id) {
-    const movs = db.movimentos.filter(m => m.itemId === id);
-    return movs.every(m => m.tipo === 'ENTRADA' || m.tipo === 'SALDO_INICIAL' || m.tipo === 'EDICAO') &&
-      movs.filter(m => m.tipo === 'ENTRADA' || m.tipo === 'SALDO_INICIAL').length <= 1;
+  // O que o usuário precisa saber antes de mandar um item para a Lixeira.
+  function avisosExclusao(db, id) {
+    const it = getItem(db, id);
+    const avisos = [];
+    const t = total(it);
+    if (it.controle === 'unidade' && it.status === 'ENTREGUE') avisos.push(`Está entregue${it.responsavelAtual ? ' a ' + it.responsavelAtual : ''}: deixará de aparecer em "Entregues" e na Devolução.`);
+    else if (t > 0) avisos.push(`Tem ${t} unidade(s) em estoque, que deixarão de contar nos totais.`);
+    const movs = db.movimentos.filter(m => m.itemId === id).length;
+    if (movs > 1) avisos.push(`Tem ${movs} movimentações no histórico (continuam guardadas).`);
+    return avisos;
   }
 
-  function excluirItem(db, id) {
-    getItem(db, id);
-    if (!podeExcluir(db, id)) throw erro('Este item já tem movimentações. Use Ajuste ou Descarte em vez de excluir.');
-    db.itens = db.itens.filter(i => i.id !== id);
-    db.movimentos = db.movimentos.filter(m => m.itemId !== id);
-    db.atualizadoEm = agoraISO();
+  function excluirItem(db, id, motivo) {
+    const it = getItem(db, id);
+    const situacao = it.controle === 'unidade' ? STATUS[it.status] : `saldo ${total(it)}`;
+    it.excluido = { em: agoraISO(), motivo: valorOuNulo(motivo), situacao };
+    toque(db, it);
+    return registrar(db, {
+      tipo: 'EXCLUSAO', itemId: id, item: snap(it),
+      obs: `Enviado para a Lixeira (${situacao})${it.excluido.motivo ? ' — ' + it.excluido.motivo : ''}`,
+    });
+  }
+
+  function restaurarItem(db, id) {
+    const it = db.itens.find(i => i.id === id);
+    if (!it) throw erro('Item não encontrado.');
+    if (!it.excluido) throw erro('Este item não está na Lixeira.');
+    const k = it.serie && chave(it.serie);
+    const conflito = k && db.itens.find(i => i.id !== id && !i.excluido && i.serie && chave(i.serie) === k);
+    if (conflito) throw erro(`Não é possível restaurar: o nº de série ${it.serie} está em uso por ${conflito.categoria} — ${conflito.descricao}.`);
+    it.excluido = null;
+    toque(db, it);
+    return registrar(db, { tipo: 'RESTAURACAO', itemId: id, item: snap(it), obs: 'Restaurado da Lixeira' });
   }
 
   // ---------- Movimentações ----------
@@ -396,6 +427,27 @@
 
   // ---------- Toner ----------
 
+  function getToner(db, id) {
+    const t = db.toners.find(x => x.id === id);
+    if (!t) throw erro('Toner não encontrado.');
+    if (t.excluido) throw erro('Este toner está na Lixeira. Restaure-o antes de alterar.');
+    return t;
+  }
+
+  function excluirToner(db, id, motivo) {
+    const t = getToner(db, id);
+    t.excluido = { em: agoraISO(), motivo: valorOuNulo(motivo), situacao: STATUS_TONER[t.status] };
+    return registrar(db, { tipo: 'EXCLUSAO', tonerId: id, item: snapToner(t), obs: `Toner enviado para a Lixeira (${STATUS_TONER[t.status]})` });
+  }
+
+  function restaurarToner(db, id) {
+    const t = db.toners.find(x => x.id === id);
+    if (!t) throw erro('Toner não encontrado.');
+    if (!t.excluido) throw erro('Este toner não está na Lixeira.');
+    t.excluido = null;
+    return registrar(db, { tipo: 'RESTAURACAO', tonerId: id, item: snapToner(t), obs: 'Toner restaurado da Lixeira' });
+  }
+
   function snapToner(t) { return { categoria: 'Toner', descricao: t.modelo, serie: null }; }
 
   function adicionarToner(db, d) {
@@ -417,8 +469,7 @@
   }
 
   function mudarStatusToner(db, id, status, obs) {
-    const t = db.toners.find(x => x.id === id);
-    if (!t) throw erro('Toner não encontrado.');
+    const t = getToner(db, id);
     if (!STATUS_TONER[status]) throw erro('Status inválido.');
     if (t.status === status) return null;
     const de = t.status;
@@ -430,8 +481,7 @@
   }
 
   function editarToner(db, id, campos) {
-    const t = db.toners.find(x => x.id === id);
-    if (!t) throw erro('Toner não encontrado.');
+    const t = getToner(db, id);
     const rot = { modelo: 'Modelo', cor: 'Cor', impressora: 'Impressora' };
     const alteracoes = [];
     for (const k of Object.keys(rot)) {
@@ -456,18 +506,18 @@
   }
 
   const listas = {
-    categorias: db => uniq(db.itens.map(i => i.categoria)),
-    posicoes: db => uniq(db.itens.map(i => i.posicao)),
-    usuarios: db => uniq(db.movimentos.map(m => m.usuario).concat(db.itens.map(i => i.responsavelAtual))),
-    proprietarios: db => uniq(['Solar Cuidados'].concat(db.itens.map(i => i.proprietario))),
-    impressoras: db => uniq(db.toners.map(t => t.impressora)),
-    modelosToner: db => uniq(db.toners.map(t => t.modelo)),
+    categorias: db => uniq(itensAtivos(db).map(i => i.categoria)),
+    posicoes: db => uniq(itensAtivos(db).map(i => i.posicao)),
+    usuarios: db => uniq(db.movimentos.map(m => m.usuario).concat(itensAtivos(db).map(i => i.responsavelAtual))),
+    proprietarios: db => uniq(['Solar Cuidados'].concat(itensAtivos(db).map(i => i.proprietario))),
+    impressoras: db => uniq(tonersAtivos(db).map(t => t.impressora)),
+    modelosToner: db => uniq(tonersAtivos(db).map(t => t.modelo)),
     justificativas: db => uniq(db.movimentos.filter(m => m.descarte).map(m => m.descarte.justificativa)),
   };
 
   function categoriaUsaSerie(db, categoria) {
     const k = chave(categoria);
-    const doGrupo = db.itens.filter(i => chave(i.categoria) === k);
+    const doGrupo = itensAtivos(db).filter(i => chave(i.categoria) === k);
     if (!doGrupo.length) return null;
     return doGrupo.filter(i => i.controle === 'unidade').length >= doGrupo.length / 2;
   }
@@ -507,9 +557,9 @@
   App.ledger = {
     LOCAIS, STATUS, TIPOS, STATUS_TONER, DADOS_APAGADOS, CAMPOS_EDITAVEIS, CAMPOS_LOTE_ITEM, CAMPOS_LOTE_DESCARTE,
     novoBanco, total, snap, getItem, itemPorSerie, registrar,
-    cadastrarItem, editarItem, editarItensEmLote, podeExcluir, excluirItem,
+    cadastrarItem, editarItem, editarItensEmLote, avisosExclusao, excluirItem, restaurarItem, itensAtivos, tonersAtivos,
     entrada, entregar, devolver, enviarManutencao, retornarManutencao, descartar, editarDescarte, editarDescartesEmLote, ajustar,
-    adicionarToner, mudarStatusToner, editarToner,
+    adicionarToner, mudarStatusToner, editarToner, excluirToner, restaurarToner,
     listas, categoriaUsaSerie, guardaDados, verificarConsistencia,
   };
 })(globalThis.App = globalThis.App || {});

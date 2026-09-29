@@ -83,11 +83,38 @@ teste('edição valida antes de alterar (nada muda se um campo falhar)', () => {
   assert.strictEqual(L.editarItem(db, b.id, { descricao: 'B2' }), null);
 });
 
-teste('exclusão só é permitida sem movimentações além do cadastro', () => {
+teste('Lixeira: excluir e restaurar item preserva saldo, situação e histórico', () => {
   const db = L.novoBanco();
-  const it = L.cadastrarItem(db, { categoria: 'Cabo', descricao: 'HDMI', controle: 'quantidade', quantidade: 1, local: 'MATRIZ', data: hoje });
-  L.entregar(db, it.id, { usuario: 'A', local: 'MATRIZ', quantidade: 1, data: hoje });
-  lanca(() => L.excluirItem(db, it.id), /movimentações/);
+  const cabo = L.cadastrarItem(db, { categoria: 'Cabo', descricao: 'HDMI', controle: 'quantidade', quantidade: 3, local: 'MATRIZ', data: hoje });
+  L.entregar(db, cabo.id, { usuario: 'A', local: 'MATRIZ', quantidade: 1, data: hoje });
+  const nb = L.cadastrarItem(db, { categoria: 'Notebook', descricao: 'Latitude', controle: 'unidade', serie: 'LX1', local: 'MATRIZ', data: hoje });
+  L.entregar(db, nb.id, { usuario: 'Fulana', data: hoje });
+  assert.ok(L.avisosExclusao(db, cabo.id).some(a => /2 unidade/.test(a)));
+  assert.ok(L.avisosExclusao(db, nb.id).some(a => /entregue a Fulana/.test(a)));
+  L.excluirItem(db, cabo.id); L.excluirItem(db, nb.id);
+  assert.strictEqual(L.itensAtivos(db).length, 0);
+  assert.ok(!L.listas.categorias(db).length, 'categorias só dos ativos');
+  lanca(() => L.entregar(db, cabo.id, { usuario: 'B', local: 'MATRIZ', quantidade: 1, data: hoje }), /Lixeira/);
+  lanca(() => L.editarItem(db, nb.id, { descricao: 'X' }), /Lixeira/);
+  lanca(() => L.cadastrarItem(db, { categoria: 'Notebook', descricao: 'Y', controle: 'unidade', serie: 'lx1', local: 'MATRIZ', data: hoje }), /Lixeira/);
+  assert.deepStrictEqual(L.verificarConsistencia(db), []);
+  L.restaurarItem(db, cabo.id); L.restaurarItem(db, nb.id);
+  assert.strictEqual(cabo.saldo.MATRIZ, 2); assert.strictEqual(nb.status, 'ENTREGUE'); assert.strictEqual(nb.responsavelAtual, 'Fulana');
+  assert.ok(db.movimentos.some(m => m.tipo === 'EXCLUSAO') && db.movimentos.some(m => m.tipo === 'RESTAURACAO'));
+  lanca(() => L.restaurarItem(db, cabo.id), /não está na Lixeira/);
+  assert.deepStrictEqual(L.verificarConsistencia(db), []);
+});
+
+teste('Lixeira: toner excluído some das contagens e pode ser restaurado', () => {
+  const db = L.novoBanco();
+  const [t] = L.adicionarToner(db, { modelo: 'W9008-EVP', status: 'NOVO', quantidade: 1 });
+  L.excluirToner(db, t.id);
+  assert.strictEqual(L.tonersAtivos(db).length, 0);
+  lanca(() => L.mudarStatusToner(db, t.id, 'EM_USO'), /Lixeira/);
+  L.restaurarToner(db, t.id);
+  assert.strictEqual(L.tonersAtivos(db).length, 1);
+  const wb = E.montarPlanilha(db);
+  assert.ok(wb.SheetNames.includes('Lixeira'));
 });
 
 teste('"Tem série": item por quantidade com 1 unidade passa a ter nº de série', () => {
@@ -275,7 +302,7 @@ if (fs.existsSync(planilha)) {
     console.log(`      itens: ${db.itens.length}, unidades em estoque: ${unidades}, movimentos: ${db.movimentos.length}, toners: ${db.toners.length}`);
     // Exportação roda sem erro e mantém as abas
     const wb = E.montarPlanilha(db);
-    assert.deepStrictEqual(wb.SheetNames, ['Estoque', 'Movimentações', 'Descarte', 'Toner']);
+    assert.deepStrictEqual(wb.SheetNames, ['Estoque', 'Movimentações', 'Descarte', 'Toner', 'Lixeira']);
     const bin = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
     const volta = XLSX.read(bin, { type: 'array' });
     assert.strictEqual(XLSX.utils.sheet_to_json(volta.Sheets['Estoque']).length, db.itens.length);

@@ -47,7 +47,7 @@
     raiz = el;
     clear(raiz);
     const db = App.store.db;
-    if (!db || !db.itens.length) return montarVazio();
+    if (!db || !L.itensAtivos(db).length) return montarVazio();
 
     inputBusca = h('input', {
       type: 'search', placeholder: 'Buscar por item, modelo, série, patrimônio, posição ou pessoa…  ( / )', value: st.busca,
@@ -108,13 +108,13 @@
 
   function atualizar() {
     const db = App.store.db;
-    if (!db || !db.itens.length || !corpo) return montar(raiz);
+    if (!db || !L.itensAtivos(db).length || !corpo) return montar(raiz);
     st.categoria = opcoesSelect(selCategoria, L.listas.categorias(db), 'Todas as categorias', st.categoria);
     st.posicao = opcoesSelect(selPosicao, L.listas.posicoes(db), 'Todas as posições', st.posicao);
 
     const busca = UI.filtroTexto(st.busca);
     const fSit = filtroSituacao[st.situacao] || filtroSituacao.estoque;
-    visiveis = db.itens.filter(i =>
+    visiveis = L.itensAtivos(db).filter(i =>
       fSit(i) &&
       (!st.categoria || i.categoria === st.categoria) &&
       (!st.posicao || i.posicao === st.posicao) &&
@@ -129,7 +129,7 @@
     });
     cab.prepend(sel.th());
     clear(montar.thead).appendChild(cab);
-    sel.exibidos(visiveis.map(i => i.id), new Set(db.itens.map(i => i.id)));
+    sel.exibidos(visiveis.map(i => i.id), new Set(L.itensAtivos(db).map(i => i.id)));
 
     const unidades = visiveis.reduce((s, i) => s + L.total(i), 0);
     const manut = visiveis.filter(i => i.status === 'MANUTENCAO').length;

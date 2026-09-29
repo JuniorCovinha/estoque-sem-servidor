@@ -32,11 +32,12 @@
   function atualizar() {
     const db = App.store.db;
     if (!corpo || !db) return;
-    const conta = s => db.toners.filter(t => t.status === s).length;
+    const ativos = L.tonersAtivos(db);
+    const conta = s => ativos.filter(t => t.status === s).length;
 
     // Estoque de novos por modelo, para saber o que tem para trocar.
     const porModelo = new Map();
-    for (const t of db.toners) if (t.status === 'NOVO') porModelo.set(t.modelo, (porModelo.get(t.modelo) || 0) + 1);
+    for (const t of ativos) if (t.status === 'NOVO') porModelo.set(t.modelo, (porModelo.get(t.modelo) || 0) + 1);
 
     preencher(cartoes, 
       h('div', { class: 'cartao' }, h('div', { class: 'rotulo' }, 'Em estoque (novos)'), h('div', { class: 'valor' }, conta('NOVO'))),
@@ -47,7 +48,7 @@
 
     const busca = UI.filtroTexto(st.busca);
     const ordem = { NOVO: 0, EM_USO: 1, DESCARTE: 2 };
-    const lista = db.toners.filter(t => (!st.status || t.status === st.status) && busca([t.modelo, t.cor, t.impressora, t.obs]))
+    const lista = ativos.filter(t => (!st.status || t.status === st.status) && busca([t.modelo, t.cor, t.impressora, t.obs]))
       .sort((a, b) => ordem[a.status] - ordem[b.status] || UI.comparar(a.modelo, b.modelo));
 
     clear(corpo);
@@ -63,7 +64,9 @@
         h('td', null, bolinhaCor(t.cor), t.cor || '—'),
         h('td', null, t.impressora || '—'),
         h('td', null, sel),
-        h('td', { class: 'acoes' }, h('button', { type: 'button', class: 'btn pequeno fantasma', onclick: () => App.acoes.abrirEditarToner(t.id) }, 'Editar'))));
+        h('td', { class: 'acoes' },
+          h('button', { type: 'button', class: 'btn pequeno', onclick: () => App.acoes.abrirEditarToner(t.id) }, 'Editar'),
+          h('button', { type: 'button', class: 'btn pequeno fantasma icone', 'aria-label': 'Mais ações', title: 'Mais ações', onclick: e => UI.menu(e.currentTarget, App.acoes.acoesDoToner(t).filter(a => a !== '-' && a.rotulo !== 'Editar')) }, '⋯'))));
     }
     corpo.appendChild(frag);
   }

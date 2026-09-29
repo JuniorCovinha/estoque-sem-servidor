@@ -6,7 +6,7 @@
 
   function linhasEstoque(db) {
     const cab = ['Categoria', 'Descrição', 'Controle', 'Nº de série', 'Patrimônio', 'Proprietário', 'Posição', 'Situação', 'Com (responsável)', 'Matriz', 'São Cristóvão', 'Total', 'Saldo mínimo', 'Observação', 'ID'];
-    const itens = db.itens.slice().sort((a, b) => a.categoria.localeCompare(b.categoria, 'pt-BR') || a.descricao.localeCompare(b.descricao, 'pt-BR'));
+    const itens = L.itensAtivos(db).slice().sort((a, b) => a.categoria.localeCompare(b.categoria, 'pt-BR') || a.descricao.localeCompare(b.descricao, 'pt-BR'));
     return [cab].concat(itens.map(i => [
       i.categoria, i.descricao, i.controle === 'unidade' ? 'Unidade' : 'Quantidade', i.serie || '', i.patrimonio || '',
       i.proprietario || '', i.posicao || '', i.controle === 'unidade' ? L.STATUS[i.status] : (L.total(i) > 0 ? 'Em estoque' : 'Sem saldo'),
@@ -42,7 +42,14 @@
 
   function linhasToner(db) {
     return [['Modelo', 'Cor', 'Impressora', 'Status', 'Observação']].concat(
-      db.toners.map(t => [t.modelo, t.cor || '', t.impressora || '', L.STATUS_TONER[t.status], t.obs || '']));
+      L.tonersAtivos(db).map(t => [t.modelo, t.cor || '', t.impressora || '', L.STATUS_TONER[t.status], t.obs || '']));
+  }
+
+  function linhasLixeira(db) {
+    const cab = ['Tipo', 'Categoria / modelo', 'Descrição', 'Nº de série', 'Situação ao excluir', 'Excluído em', 'Motivo', 'ID'];
+    const itens = db.itens.filter(i => i.excluido).map(i => ['Item', i.categoria, i.descricao, i.serie || '', i.excluido.situacao || '', fmtDataHora(i.excluido.em), i.excluido.motivo || '', i.id]);
+    const toners = db.toners.filter(t => t.excluido).map(t => ['Toner', t.modelo, [t.cor, t.impressora].filter(Boolean).join(' · '), '', t.excluido.situacao || '', fmtDataHora(t.excluido.em), t.excluido.motivo || '', t.id]);
+    return [cab].concat(itens, toners);
   }
 
   function folha(aoa, larguras) {
@@ -58,6 +65,7 @@
     XLSX.utils.book_append_sheet(wb, folha(linhasMovimentos(db), [11, 20, 22, 30, 22, 13, 10, 13, 28, 15, 40, 16, 30, 38]), 'Movimentações');
     XLSX.utils.book_append_sheet(wb, folha(linhasDescarte(db), [11, 20, 28, 20, 6, 10, 36, 12, 12, 14, 16, 16, 30]), 'Descarte');
     XLSX.utils.book_append_sheet(wb, folha(linhasToner(db), [16, 10, 18, 10, 30]), 'Toner');
+    XLSX.utils.book_append_sheet(wb, folha(linhasLixeira(db), [8, 22, 30, 22, 18, 16, 30, 38]), 'Lixeira');
     wb.Props = { Title: 'Backup do estoque de TI', Author: 'Estoque Infra (aplicação local)', CreatedDate: new Date() };
     return wb;
   }

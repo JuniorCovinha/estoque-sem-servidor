@@ -74,7 +74,7 @@
   function campoItem(filtro, extra) {
     return Object.assign({
       nome: 'itemId', rotulo: 'Item', tipo: 'item', obrigatorio: true,
-      itens: () => db().itens.filter(filtro).sort((a, b) => rotuloItem(a).localeCompare(rotuloItem(b), 'pt-BR')),
+      itens: () => L.itensAtivos(db()).filter(filtro).sort((a, b) => rotuloItem(a).localeCompare(rotuloItem(b), 'pt-BR')),
       dica: 'Digite ou leia o nº de série, ou escolha pelo nome.',
     }, extra);
   }
@@ -312,17 +312,9 @@
       { nome: 'posicao', rotulo: 'Posição', lista: () => L.listas.posicoes(db()), valor: it.posicao || '' },
       { nome: 'proprietario', rotulo: 'Proprietário', lista: () => L.listas.proprietarios(db()), valor: it.proprietario || '' },
       campoObs({ valor: it.obs || '' }));
-    const podeExcluir = L.podeExcluir(db(), itemId);
-    const { dlg } = UI.formulario({
+    UI.formulario({
       titulo: 'Editar item', subtitulo: 'O saldo não é editado aqui: use Entrada, Entrega, Ajuste ou Descarte.',
       campos,
-      rodapeEsquerda: podeExcluir ? h('button', {
-        type: 'button', class: 'btn perigo', onclick: async () => {
-          const ok = await UI.confirmar({ titulo: 'Excluir item?', mensagem: `${rotuloItem(it)} será removido. Use apenas para cadastro feito por engano.`, ok: 'Excluir', perigo: true });
-          if (!ok) return;
-          try { await App.acao(d => L.excluirItem(d, itemId), 'Item excluído.'); dlg.close(); } catch (e) { UI.toast(e.message, 'erro'); }
-        },
-      }, 'Excluir item') : null,
       aoEnviar: async v => {
         const campos = Object.assign({}, v);
         if (it.controle === 'quantidade') {
@@ -517,12 +509,57 @@
     a.push('-');
     a.push({ rotulo: 'Editar dados', fn: () => abrirEditarItem(it.id) });
     a.push({ rotulo: 'Histórico', fn: () => abrirHistorico(it.id) });
+    a.push('-');
+    a.push({ rotulo: 'Excluir…', fn: () => confirmarExclusaoItem(it.id), perigo: true });
     return a;
+  }
+
+  // ---------- Lixeira (exclusão reversível) ----------
+  async function confirmarExclusaoItem(itemId) {
+    const it = itemDe(itemId);
+    let avisos;
+    try { avisos = L.avisosExclusao(db(), itemId); } catch (e) { return UI.toast(e.message, 'erro'); }
+    const ok = await UI.confirmar({
+      titulo: 'Tem certeza que deseja excluir?', perigo: true, ok: 'Excluir',
+      mensagem: `${rotuloItem(it)} vai para a Lixeira, de onde pode ser recuperado depois.`,
+      detalhes: avisos,
+    });
+    if (!ok) return;
+    try { await App.acao(d => L.excluirItem(d, itemId), 'Item enviado para a Lixeira.'); } catch (e) { UI.toast(e.message, 'erro'); }
+  }
+
+  async function confirmarExclusaoToner(id) {
+    const t = db().toners.find(x => x.id === id);
+    const ok = await UI.confirmar({
+      titulo: 'Tem certeza que deseja excluir?', perigo: true, ok: 'Excluir',
+      mensagem: `Toner ${t.modelo}${t.cor ? ' (' + t.cor + ')' : ''} — ${L.STATUS_TONER[t.status]} vai para a Lixeira, de onde pode ser recuperado depois.`,
+    });
+    if (!ok) return;
+    try { await App.acao(d => L.excluirToner(d, id), 'Toner enviado para a Lixeira.'); } catch (e) { UI.toast(e.message, 'erro'); }
+  }
+
+  async function confirmarRestauracao(tipo, id) {
+    const alvo = tipo === 'toner' ? db().toners.find(x => x.id === id) : itemDe(id);
+    const nome = tipo === 'toner' ? `Toner ${alvo.modelo}` : rotuloItem(alvo);
+    const ok = await UI.confirmar({ titulo: 'Restaurar da Lixeira?', mensagem: `${nome} volta para as listas com a mesma situação e saldo de quando foi excluído.`, ok: 'Restaurar' });
+    if (!ok) return;
+    try {
+      await App.acao(d => tipo === 'toner' ? L.restaurarToner(d, id) : L.restaurarItem(d, id), 'Restaurado da Lixeira.');
+    } catch (e) { UI.toast(e.message, 'erro'); }
+  }
+
+  function acoesDoToner(t) {
+    return [
+      { rotulo: 'Editar', fn: () => abrirEditarToner(t.id) },
+      '-',
+      { rotulo: 'Excluir…', fn: () => confirmarExclusaoToner(t.id), perigo: true },
+    ];
   }
 
   App.acoes = {
     abrirEntrega, abrirDevolucao, abrirNovoItem, abrirEntrada, abrirAjuste, abrirManutencao, abrirRetornoManutencao,
     abrirDescarte, abrirEditarDescarte, abrirEditarItem, abrirEditarItensLote, abrirEditarDescartesLote, abrirHistorico, abrirNovoToner, abrirEditarToner,
+    confirmarExclusaoItem, confirmarExclusaoToner, confirmarRestauracao, acoesDoToner,
     acoesDoItem, rotuloItem, situacao, linhaMov, fmtMoeda,
   };
 })(globalThis.App = globalThis.App || {});
