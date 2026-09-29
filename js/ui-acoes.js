@@ -1,4 +1,4 @@
-/* Diálogos de operação. Todos passam por App.acao, que grava e desfaz em caso de erro. */
+/* Diálogos de operação. Todos passam por App.executar (operação sincronizável; nada muda se a regra falhar). */
 (function (App) {
   'use strict';
   const { h, hojeISO, fmtData, fmtDataHora, fmtMoeda, normalizaChamado, chamadoValido, limpa } = App.util;
@@ -101,7 +101,7 @@
       botoes: [{ rotulo: 'Registrar e lançar outro', acao: 'outro' }, { rotulo: 'Registrar entrega', acao: 'salvar', primario: true }],
       aoEnviar: async (v, acao) => {
         if (!(await confirmarAvisos(v))) return false;
-        await App.acao(d => L.entregar(d, v.itemId, v), 'Entrega registrada.');
+        await App.executar('entregar', [v.itemId, v], 'Entrega registrada.');
         return acao === 'outro' ? 'continuar' : true;
       },
     });
@@ -132,7 +132,7 @@
       botoes: [{ rotulo: 'Registrar e lançar outro', acao: 'outro' }, { rotulo: 'Registrar devolução', acao: 'salvar', primario: true }],
       aoEnviar: async (v, acao) => {
         if (!(await confirmarAvisos(v))) return false;
-        await App.acao(d => L.devolver(d, v.itemId, v), 'Devolução registrada.');
+        await App.executar('devolver', [v.itemId, v], 'Devolução registrada.');
         return acao === 'outro' ? 'continuar' : true;
       },
     });
@@ -164,7 +164,7 @@
       aoEnviar: async (v, acao) => {
         const extras = v.controle === 'unidade' && !limpa(v.serie) ? ['Item por unidade sem nº de série: ficará difícil identificá-lo depois.'] : [];
         if (!(await confirmarAvisos(v, extras))) return false;
-        await App.acao(d => L.cadastrarItem(d, v), 'Item cadastrado.');
+        await App.executar('cadastrarItem', [v], 'Item cadastrado.');
         return acao === 'outro' ? 'continuar' : true;
       },
     });
@@ -184,7 +184,7 @@
       botoes: [{ rotulo: 'Registrar entrada', acao: 'salvar', primario: true }],
       aoEnviar: async v => {
         if (!(await confirmarAvisos(v))) return false;
-        await App.acao(d => L.entrada(d, itemId, v), 'Entrada registrada.');
+        await App.executar('entrada', [itemId, v], 'Entrada registrada.');
       },
     });
   }
@@ -203,7 +203,7 @@
         campoData(),
       ],
       botoes: [{ rotulo: 'Ajustar', acao: 'salvar', primario: true }],
-      aoEnviar: async v => { await App.acao(d => L.ajustar(d, itemId, v), 'Saldo ajustado.'); },
+      aoEnviar: async v => { await App.executar('ajustar', [itemId, v], 'Saldo ajustado.'); },
     });
   }
 
@@ -216,7 +216,7 @@
         campoChamado(), campoData(), campoObs({ rotulo: 'Defeito / motivo', obrigatorio: true }),
       ],
       botoes: [{ rotulo: 'Enviar para manutenção', acao: 'salvar', primario: true }],
-      aoEnviar: async v => { await App.acao(d => L.enviarManutencao(d, itemId, v), 'Item marcado em manutenção.'); },
+      aoEnviar: async v => { await App.executar('enviarManutencao', [itemId, v], 'Item marcado em manutenção.'); },
     });
   }
 
@@ -229,7 +229,7 @@
         campoData(), campoObs({ placeholder: 'Ex.: trocado microfone' }),
       ],
       botoes: [{ rotulo: 'Voltar ao estoque', acao: 'salvar', primario: true }],
-      aoEnviar: async v => { await App.acao(d => L.retornarManutencao(d, itemId, v), 'Item voltou ao estoque.'); },
+      aoEnviar: async v => { await App.executar('retornarManutencao', [itemId, v], 'Item voltou ao estoque.'); },
     });
   }
 
@@ -269,7 +269,7 @@
         if (L.guardaDados(it.categoria) && v.dadosApagados !== 'SIM' && v.dadosApagados !== 'NAO_SE_APLICA') detalhes.push(`Atenção: dados apagados = "${L.DADOS_APAGADOS[v.dadosApagados]}".`);
         const ok = await UI.confirmar({ titulo: 'Confirmar descarte', mensagem: 'O descarte tira o item do estoque e não pode ser desfeito.', detalhes, ok: 'Descartar', perigo: true });
         if (!ok) return false;
-        await App.acao(d => L.descartar(d, v.itemId, v), 'Descarte registrado.');
+        await App.executar('descartar', [v.itemId, v], 'Descarte registrado.');
       },
     });
   }
@@ -286,7 +286,7 @@
       titulo: 'Editar registro de descarte',
       subtitulo: `${m.item?.categoria || ''} — ${m.item?.descricao || ''}${m.item?.serie ? ' · ' + m.item.serie : ''} (${m.quantidade} un.)`,
       campos,
-      aoEnviar: async v => { await App.acao(d => L.editarDescarte(d, movId, v), 'Descarte atualizado.'); },
+      aoEnviar: async v => { await App.executar('editarDescarte', [movId, v], 'Descarte atualizado.'); },
     });
   }
 
@@ -321,7 +321,7 @@
           if (v.temSerie) campos.controle = 'unidade';
           else { delete campos.serie; delete campos.patrimonio; }
         }
-        await App.acao(d => L.editarItem(d, itemId, campos), v.temSerie ? 'Item passou a ter nº de série.' : 'Item atualizado.');
+        await App.executar('editarItem', [itemId, campos], v.temSerie ? 'Item passou a ter nº de série.' : 'Item atualizado.');
       },
     });
   }
@@ -383,7 +383,7 @@
           detalhes, ok: `Aplicar em ${plural(total, 'item', 'itens')}`,
         });
         if (!ok) return false;
-        await App.acao(d => L.editarItensEmLote(d, alvo, campos), `${plural(total, 'item atualizado', 'itens atualizados')}.`);
+        await App.executar('editarItensEmLote', [alvo, campos], `${plural(total, 'item atualizado', 'itens atualizados')}.`);
         if (aoConcluir) aoConcluir();
       },
     });
@@ -422,7 +422,7 @@
           detalhes, ok: `Aplicar em ${plural(total, 'registro', 'registros')}`, perigo: escondeAlerta,
         });
         if (!ok) return false;
-        await App.acao(d => L.editarDescartesEmLote(d, alvo, campos), `${plural(total, 'descarte atualizado', 'descartes atualizados')}.`);
+        await App.executar('editarDescartesEmLote', [alvo, campos], `${plural(total, 'descarte atualizado', 'descartes atualizados')}.`);
         if (aoConcluir) aoConcluir();
       },
     });
@@ -471,7 +471,7 @@
         campoData(),
       ],
       botoes: [{ rotulo: 'Adicionar e lançar outro', acao: 'outro' }, { rotulo: 'Adicionar', acao: 'salvar', primario: true }],
-      aoEnviar: async (v, acao) => { await App.acao(d => L.adicionarToner(d, v), 'Toner adicionado.'); return acao === 'outro' ? 'continuar' : true; },
+      aoEnviar: async (v, acao) => { await App.executar('adicionarToner', [v], 'Toner adicionado.'); return acao === 'outro' ? 'continuar' : true; },
     });
   }
   function abrirEditarToner(id) {
@@ -483,7 +483,7 @@
         { nome: 'cor', rotulo: 'Cor', lista: ['Preto', 'Ciano', 'Magenta', 'Amarelo'], valor: t.cor || '' },
         { nome: 'impressora', rotulo: 'Impressora', lista: () => L.listas.impressoras(db()), valor: t.impressora || '' },
       ],
-      aoEnviar: async v => { await App.acao(d => L.editarToner(d, id, v), 'Toner atualizado.'); },
+      aoEnviar: async v => { await App.executar('editarToner', [id, v], 'Toner atualizado.'); },
     });
   }
 
@@ -525,7 +525,7 @@
       detalhes: avisos,
     });
     if (!ok) return;
-    try { await App.acao(d => L.excluirItem(d, itemId), 'Item enviado para a Lixeira.'); } catch (e) { UI.toast(e.message, 'erro'); }
+    try { await App.executar('excluirItem', [itemId], 'Item enviado para a Lixeira.'); } catch (e) { UI.toast(e.message, 'erro'); }
   }
 
   async function confirmarExclusaoToner(id) {
@@ -535,7 +535,7 @@
       mensagem: `Toner ${t.modelo}${t.cor ? ' (' + t.cor + ')' : ''} — ${L.STATUS_TONER[t.status]} vai para a Lixeira, de onde pode ser recuperado depois.`,
     });
     if (!ok) return;
-    try { await App.acao(d => L.excluirToner(d, id), 'Toner enviado para a Lixeira.'); } catch (e) { UI.toast(e.message, 'erro'); }
+    try { await App.executar('excluirToner', [id], 'Toner enviado para a Lixeira.'); } catch (e) { UI.toast(e.message, 'erro'); }
   }
 
   async function confirmarRestauracao(tipo, id) {
@@ -544,7 +544,7 @@
     const ok = await UI.confirmar({ titulo: 'Restaurar da Lixeira?', mensagem: `${nome} volta para as listas com a mesma situação e saldo de quando foi excluído.`, ok: 'Restaurar' });
     if (!ok) return;
     try {
-      await App.acao(d => tipo === 'toner' ? L.restaurarToner(d, id) : L.restaurarItem(d, id), 'Restaurado da Lixeira.');
+      await App.executar(tipo === 'toner' ? 'restaurarToner' : 'restaurarItem', [id], 'Restaurado da Lixeira.');
     } catch (e) { UI.toast(e.message, 'erro'); }
   }
 

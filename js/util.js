@@ -50,20 +50,37 @@
     return limpa(v).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   }
 
+  // Contexto de execução de uma operação sincronizável (js/sync.js). Enquanto ativo, ids e horários
+  // derivam da operação: reaplicá-la em outro estado produz os mesmos ids e datas da primeira vez.
+  // É síncrono (as funções do ledger não usam await), então não vaza para outras tarefas.
+  let contexto = null;
+
+  function comContexto(op, fn) {
+    const anterior = contexto;
+    contexto = { id: op.id, agora: op.criadoEm, autor: op.autor || null, seq: 0 };
+    try { return fn(); } finally { contexto = anterior; }
+  }
+
+  function autorAtual() {
+    const a = contexto && contexto.autor;
+    return a ? { nome: a.nome || null, email: a.email || null } : null;
+  }
+
   function uid() {
+    if (contexto) return `${contexto.id}-${++contexto.seq}`;
     if (globalThis.crypto && crypto.randomUUID) return crypto.randomUUID();
     return 'id-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
   }
 
   function pad(n) { return String(n).padStart(2, '0'); }
 
-  // Datas de negócio são guardadas como 'AAAA-MM-DD' (sem fuso).
+  // Datas de negócio são guardadas como 'AAAA-MM-DD' (sem fuso). Dentro de operação: o dia em que ela foi feita.
   function hojeISO() {
-    const d = new Date();
+    const d = contexto ? new Date(contexto.agora) : new Date();
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   }
 
-  function agoraISO() { return new Date().toISOString(); }
+  function agoraISO() { return contexto ? contexto.agora : new Date().toISOString(); }
 
   function excelSerialParaISO(n) {
     const ms = Date.UTC(1899, 11, 30) + Math.round(Number(n)) * 86400000;
@@ -127,6 +144,6 @@
   App.util = {
     h, clear, preencher, appendChildren, limpa, valorOuNulo, chave, uid, hojeISO, agoraISO,
     excelSerialParaISO, dataParaISO, fmtData, fmtDataHora, fmtMoeda, numero,
-    normalizaChamado, chamadoValido, debounce, contem, pad,
+    normalizaChamado, chamadoValido, debounce, contem, pad, comContexto, autorAtual,
   };
 })(globalThis.App = globalThis.App || {});

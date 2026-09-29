@@ -56,7 +56,7 @@
     const frag = document.createDocumentFragment();
     for (const t of lista) {
       const sel = UI.select(Object.entries(L.STATUS_TONER).map(([valor, rotulo]) => ({ valor, rotulo })), t.status, async v => {
-        try { await App.acao(d => L.mudarStatusToner(d, t.id, v), `Toner ${t.modelo}: ${L.STATUS_TONER[v]}.`); }
+        try { await App.executar('mudarStatusToner', [t.id, v], `Toner ${t.modelo}: ${L.STATUS_TONER[v]}.`); }
         catch (e) { UI.toast(e.message, 'erro'); atualizar(); }
       }, 'Status do toner ' + t.modelo);
       frag.appendChild(h('tr', null,

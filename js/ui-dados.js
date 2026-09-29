@@ -19,7 +19,7 @@
     clear(raiz);
     if (importacao) return raiz.appendChild(relatorio());
     const db = S.db;
-    raiz.append(secaoPasta(), secaoImportar(db), secaoExportar(db), secaoVerificar(db), secaoSobre(db));
+    raiz.append(secaoPasta(), secaoSincronizacao(), secaoOperador(), secaoImportar(db), secaoExportar(db), secaoVerificar(db), secaoSobre(db));
   }
 
   // ---------- Pasta de dados ----------
@@ -29,7 +29,7 @@
     if (e.conexao === 'indisponivel') aviso = h('div', { class: 'aviso danger' }, 'Este navegador não permite gravar em pasta. Use o Google Chrome ou o Microsoft Edge. Enquanto isso, os dados ficam só neste navegador: baixe backups com frequência.');
     else if (e.conexao === 'sem-pasta') aviso = h('div', { class: 'aviso warn' }, 'Nenhuma pasta escolhida. Os dados estão só neste navegador; limpar o histórico/cache do navegador pode apagá-los.');
     else if (e.conexao === 'reconectar') aviso = h('div', { class: 'aviso warn' }, `O navegador pede permissão de novo para gravar na pasta "${S.nomePasta()}". Clique em Reconectar.`);
-    else aviso = h('div', { class: 'aviso ok' }, `Gravando em "${S.nomePasta()}/estoque.json"`, e.ultimoArquivo ? ` — última gravação ${fmtDataHora(e.ultimoArquivo.toISOString())}` : '', '. Backup automático diário em "backup/".');
+    else aviso = h('div', { class: 'aviso ok' }, `Gravando em "${S.nomePasta()}/estoque.json"`, S.sync.estado.ultimaSync ? ` — última sincronização ${fmtDataHora(S.sync.estado.ultimaSync)}` : '', '. Backup automático diário em "backup/".');
     return h('section', { class: 'secao' },
       h('h2', null, 'Pasta de dados'),
       h('p', null, 'Escolha uma pasta sincronizada com o SharePoint/OneDrive (ex.: dentro de "38.1 - Ativos de tecnologia"). A aplicação grava ali o arquivo estoque.json a cada alteração, e uma cópia diária em backup/ (JSON + planilha).'),
@@ -40,15 +40,109 @@
         e.conexao !== 'indisponivel' ? h('button', { class: 'btn' + (e.conexao === 'sem-pasta' ? ' primario' : ''), type: 'button', onclick: () => executar(() => S.escolherPasta()) }, e.pasta ? 'Trocar pasta…' : 'Escolher pasta…') : null));
   }
 
-  async function executar(fn) {
-    try {
-      const r = await fn();
-      if (r && r.conflito) await App.resolverConflito(r.conflito);
-      App.render();
-    } catch (e) {
-      if (e && e.name === 'AbortError') return; // usuário cancelou o seletor
-      UI.toast(e.message || String(e), 'erro');
+  // Conecta/sincroniza e re-renderiza; o conflito de versões da primeira ligação abre sozinho (app.js).
+  const executar = fn => App.conectar(fn);
+
+  // ---------- Sincronização ----------
+  function secaoSincronizacao() {
+    const e = S.estado, sy = S.sync;
+    const n = sy.pendentes.length;
+    const conflitos = sy.conflitos;
+    const conectado = e.conexao === 'conectado';
+    const linhas = [
+      n ? `${n} ${n === 1 ? 'alteração deste computador aguardando' : 'alterações deste computador aguardando'} sincronização.` : 'Nenhuma alteração aguardando sincronização.',
+      sy.estado.ultimaSync ? `Última sincronização: ${fmtDataHora(sy.estado.ultimaSync)}.` : null,
+      !conectado && e.conexao !== 'sem-pasta' && e.conexao !== 'indisponivel' ? 'Sem conexão com a pasta: as alterações ficam guardadas neste navegador e são enviadas ao reconectar.' : null,
+    ].filter(Boolean);
+    return h('section', { class: 'secao' },
+      h('h2', null, 'Sincronização'),
+      h('p', null, 'Cada alteração é registrada como uma operação e enviada para o arquivo da pasta. Se outra pessoa alterou o arquivo antes, suas operações são reaplicadas sobre a versão dela; as que não fizerem mais sentido (ex.: item já entregue por outra pessoa) aparecem abaixo para revisão.'),
+      h('ul', { class: 'lista-simples' }, linhas.map(l => h('li', null, l))),
+      h('div', { class: 'linha-botoes' },
+        h('button', { class: 'btn primario', type: 'button', disabled: !conectado || sy.estado.sincronizando, onclick: sincronizarAgora }, 'Sincronizar agora')),
+      h('h3', null, `Conflitos para revisar${conflitos.length ? ` (${conflitos.length})` : ''}`),
+      conflitos.length
+        ? h('div', null, conflitos.map(cartaoConflito))
+        : h('p', { class: 'fraco' }, 'Nenhum conflito.'));
+  }
+
+  async function sincronizarAgora() {
+    const antes = S.sync.conflitos.length;
+    await S.sincronizar();
+    const novos = S.sync.conflitos.length - antes;
+    if (S.estado.erro) UI.toast(S.estado.erro, 'erro');
+    else if (novos > 0) UI.toast(`${novos} ${novos === 1 ? 'operação não pôde ser aplicada' : 'operações não puderam ser aplicadas'}: veja "Conflitos para revisar".`, 'erro');
+    else if (!S.sync.estado.conflitoVersoes) UI.toast('Sincronizado.');
+    App.render();
+  }
+
+  // Texto do alvo da operação (item, toner, registro) para o usuário reconhecer o que era.
+  function descreverAlvo(op, db) {
+    const [a0, a1] = op.args || [];
+    const nomeItem = it => `${it.categoria} — ${it.descricao}${it.serie ? ' (' + it.serie + ')' : ''}`;
+    let alvo = null;
+    if (typeof a0 === 'string') {
+      const it = db.itens.find(i => i.id === a0);
+      const t = !it && db.toners.find(x => x.id === a0);
+      const m = !it && !t && db.movimentos.find(x => x.id === a0);
+      alvo = it ? nomeItem(it) : t ? `Toner ${t.modelo}` : m && m.item ? nomeItem(m.item) : null;
+    } else if (Array.isArray(a0)) alvo = `${a0.length} registro(s)`;
+    else if (a0 && typeof a0 === 'object') {
+      if (a0.categoria || a0.descricao) alvo = nomeItem({ categoria: a0.categoria || '', descricao: a0.descricao || '', serie: a0.serie });
+      else if (a0.modelo) alvo = `Toner ${a0.modelo}`;
+      else if (Array.isArray(a0.cores)) alvo = `${a0.cores.length} toner(s)`;
     }
+    const para = a1 && typeof a1 === 'object' && a1.usuario ? `para ${a1.usuario}` : null;
+    return [alvo, para].filter(Boolean).join(' ');
+  }
+
+  function cartaoConflito(c) {
+    const op = c.op || {};
+    const autor = op.autor ? `${op.autor.nome}${op.autor.email ? ' <' + op.autor.email + '>' : ''}` : 'autor desconhecido';
+    const alvo = descreverAlvo(op, S.db);
+    return h('div', { class: 'pend decisao' },
+      h('div', { class: 'pend-titulo' }, App.sync.rotuloOperacao(op.nome), alvo ? ': ' + alvo : ''),
+      h('div', { class: 'pend-detalhe' }, 'Por que falhou: ', c.erro),
+      h('div', { class: 'pend-detalhe fraco' }, `Feita por ${autor} em ${fmtDataHora(op.criadoEm)} · conflito detectado em ${fmtDataHora(c.em)}`),
+      h('div', { class: 'linha-botoes' },
+        h('button', { class: 'btn', type: 'button', onclick: () => tentarDeNovo(c) }, 'Tentar de novo'),
+        h('button', { class: 'btn perigo', type: 'button', onclick: () => descartarConflito(c, alvo) }, 'Descartar')));
+  }
+
+  async function tentarDeNovo(c) {
+    try {
+      await S.tentarConflitoDeNovo(c.id);
+      UI.toast('Operação reaplicada; será enviada na próxima sincronização.');
+    } catch (e) {
+      UI.toast('Ainda não é possível aplicar: ' + e.message, 'erro');
+    }
+    App.render();
+  }
+
+  async function descartarConflito(c, alvo) {
+    const ok = await UI.confirmar({
+      titulo: 'Descartar esta operação?', perigo: true, ok: 'Descartar',
+      mensagem: `${App.sync.rotuloOperacao(c.op && c.op.nome)}${alvo ? ': ' + alvo : ''}. Ela não será aplicada e sai desta lista. Não é possível desfazer.`,
+    });
+    if (!ok) return;
+    try { await S.descartarConflito(c.id); UI.toast('Operação descartada.'); } catch (e) { UI.toast(e.message, 'erro'); }
+    App.render();
+  }
+
+  // ---------- Operador ----------
+  function secaoOperador() {
+    const externa = App.sessao.externa;
+    const atual = App.sessao.autor();
+    const input = h('input', { type: 'text', value: externa ? atual.nome : App.sessao.nomeLocal(), maxlength: 80, style: 'width:280px', disabled: externa, 'aria-label': 'Nome de quem está usando este computador' });
+    const salvar = () => {
+      try { const n = App.sessao.definirNome(input.value); input.value = n; UI.toast(`As próximas alterações serão registradas em nome de ${n}.`); }
+      catch (e) { UI.toast(e.message, 'erro'); }
+    };
+    return h('section', { class: 'secao' },
+      h('h2', null, 'Quem está usando este computador'),
+      h('p', null, externa ? 'Nome da conta conectada. Aparece como autor de cada alteração.' : 'Este nome fica gravado em cada alteração (histórico e conflitos). É guardado só neste navegador.'),
+      h('div', { class: 'linha-botoes' }, input,
+        externa ? null : h('button', { class: 'btn', type: 'button', onclick: salvar }, 'Salvar nome')));
   }
 
   // ---------- Importação ----------
@@ -107,14 +201,9 @@
     });
     if (!ok) return;
     try {
-      await App.acao(d => {
-        for (const a of aplicar) {
-          const t = d.toners.find(x => x.id === a.id);
-          if (!t || t.cor) continue; // não sobrescreve cor preenchida
-          const m = L.editarToner(d, a.id, { cor: a.cor });
-          if (m) m.obs += ` — pela planilha "${arquivo.name}" (linha ${a.linha}${a.rgb ? ', preenchimento #' + a.rgb : ''})`;
-        }
-      }, `Cores atualizadas em ${aplicar.length} toner(s).`);
+      // Uma única operação (L.atualizarCoresToners), que não sobrescreve cor já preenchida.
+      const cores = aplicar.map(a => ({ id: a.id, cor: a.cor, linha: a.linha, rgb: a.rgb || null }));
+      await App.executar('atualizarCoresToners', [{ arquivo: arquivo.name, cores }], `Cores atualizadas em ${aplicar.length} toner(s).`);
     } catch (e) {
       console.error(e);
       UI.toast('Falha ao atualizar as cores: ' + e.message, 'erro');
@@ -199,6 +288,8 @@
 
   async function confirmarImportacao() {
     const r = importacao;
+    // Substituição total não é operação: só com a fila vazia (sincroniza antes, se possível).
+    try { await S.prepararSubstituicao(); } catch (e) { UI.toast(e.message, 'erro'); App.render(); return; }
     const db = S.db;
     const tem = db && (db.itens.length || db.movimentos.length);
     if (tem) {
@@ -247,8 +338,14 @@
 
   async function restaurar(arquivo) {
     if (!arquivo) return;
+    let novo;
     try {
-      const novo = S.validarBanco(JSON.parse(await arquivo.text()));
+      novo = S.validarBanco(App.sync.extrairBanco(JSON.parse(await arquivo.text())));
+    } catch (e) {
+      return UI.toast('Backup inválido: ' + e.message, 'erro');
+    }
+    try {
+      await S.prepararSubstituicao();
       const ok = await UI.confirmar({
         titulo: 'Restaurar backup?', perigo: true, ok: 'Restaurar',
         mensagem: `O arquivo "${arquivo.name}" tem ${novo.itens.length} itens e ${novo.movimentos.length} movimentações (salvo em ${fmtDataHora(novo.atualizadoEm)}). Os dados atuais serão substituídos; uma cópia deles é guardada antes.`,
@@ -256,10 +353,10 @@
       if (!ok) return;
       await S.substituirBanco(novo, 'restauracao');
       UI.toast('Backup restaurado.');
-      App.render();
     } catch (e) {
-      UI.toast('Backup inválido: ' + e.message, 'erro');
+      UI.toast('Não foi possível restaurar: ' + e.message, 'erro');
     }
+    App.render();
   }
 
   // ---------- Verificação ----------

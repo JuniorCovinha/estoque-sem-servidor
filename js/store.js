@@ -1,21 +1,17 @@
-/* Persistência: IndexedDB (cópia de trabalho) + estoque.json numa pasta escolhida pelo usuário (fonte de verdade).
-   Backup diário automático em <pasta>/backup/ antes da primeira gravação do dia. */
+/* Persistência local e ligação com o armazenamento remoto.
+   IndexedDB guarda o estado da sincronização (base + fila de operações + conflitos) e a pasta escolhida.
+   O remoto padrão é o estoque.json numa pasta sincronizada com o SharePoint/OneDrive (App.remoto.pasta),
+   com backup diário automático em <pasta>/backup/ antes da primeira gravação do dia.
+   Login Microsoft/Graph, depois: troque o remoto em criarRemoto() por App.remoto.graph({...}). */
 (function (App) {
   'use strict';
-  const { hojeISO, pad } = App.util;
 
   const IDB_NOME = 'estoque-infra';
   const IDB_STORE = 'kv';
-  const ARQUIVO = 'estoque.json';
-  const PASTA_BACKUP = 'backup';
 
   const estado = {
-    db: null,
     pasta: null,          // FileSystemDirectoryHandle
     conexao: 'sem-pasta', // sem-pasta | conectado | reconectar | indisponivel
-    gravandoArquivo: false,
-    pendenteArquivo: false,
-    ultimoArquivo: null,  // Date da última gravação no arquivo
     erro: null,
   };
   const ouvintes = new Set();
@@ -61,114 +57,82 @@
     return obj;
   }
 
-  // ---------- Arquivo ----------
+  // ---------- Remoto e motor de sincronização ----------
   const suportaPasta = () => typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 
-  async function lerArquivo(pasta) {
-    try {
-      const fh = await pasta.getFileHandle(ARQUIVO);
-      const f = await fh.getFile();
-      const texto = await f.text();
-      return { texto, db: validarBanco(JSON.parse(texto)) };
-    } catch (e) {
-      if (e && e.name === 'NotFoundError') return null;
-      throw e;
+  function criarRemoto() {
+    return App.remoto.pasta({
+      obterPasta: () => (estado.conexao === 'conectado' ? estado.pasta : null),
+      ultimoBackup: { ler: () => idbGet('ultimoBackup'), gravar: d => idbSet('ultimoBackup', d) },
+      planilha: db => (App.exporter ? App.exporter.planilhaBinaria(db) : null),
+    });
+  }
+  const remoto = criarRemoto();
+
+  async function gravarBackup(prefixo, texto, db) {
+    if (estado.conexao !== 'conectado' || !remoto.backup) return false;
+    return remoto.backup(prefixo, texto, db);
+  }
+
+  const motor = App.sync.criarMotor({
+    remoto, validar: validarBanco, backup: gravarBackup, aoMudar: notificar,
+    persistir: s => idbSet('sync', s),
+  });
+
+  function erroDePermissao(e) { return e && (e.name === 'NotAllowedError' || e.name === 'SecurityError'); }
+
+  // Sincroniza conforme a conexão. Erros ficam em estado.erro (a fila continua guardada).
+  async function sincronizar() {
+    if (estado.conexao === 'sem-pasta' || estado.conexao === 'indisponivel') {
+      try { await motor.consolidarLocal(); } catch (e) { estado.erro = 'Não foi possível salvar no navegador: ' + e.message; }
+      notificar();
+      return null;
     }
-  }
-
-  async function escreverTexto(pasta, nome, conteudo) {
-    const fh = await pasta.getFileHandle(nome, { create: true });
-    const w = await fh.createWritable();
-    await w.write(conteudo);
-    await w.close();
-  }
-
-  function carimbo() {
-    const d = new Date();
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
-  }
-
-  async function gravarBackup(prefixo, texto, dbParaPlanilha) {
-    if (!estado.pasta || estado.conexao !== 'conectado') return false;
-    const dir = await estado.pasta.getDirectoryHandle(PASTA_BACKUP, { create: true });
-    const nome = `${prefixo}-${carimbo()}`;
-    await escreverTexto(dir, nome + '.json', texto);
-    if (dbParaPlanilha && App.exporter) {
-      const bin = App.exporter.planilhaBinaria(dbParaPlanilha);
-      await escreverTexto(dir, nome + '.xlsx', new Blob([bin], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-    }
-    return true;
-  }
-
-  async function gravarArquivoAgora() {
-    if (!estado.pasta || estado.conexao !== 'conectado' || !estado.db) return;
-    if (estado.gravandoArquivo) { estado.pendenteArquivo = true; return; }
-    estado.gravandoArquivo = true; estado.pendenteArquivo = false; notificar();
+    if (estado.conexao !== 'conectado') { notificar(); return null; }
     try {
-      // Backup diário: guarda a versão anterior do arquivo antes da primeira gravação do dia.
-      const hoje = hojeISO();
-      if ((await idbGet('ultimoBackup')) !== hoje) {
-        const atual = await lerArquivo(estado.pasta).catch(() => null);
-        if (atual) await gravarBackup('estoque', atual.texto, atual.db);
-        await idbSet('ultimoBackup', hoje);
-      }
-      await escreverTexto(estado.pasta, ARQUIVO, JSON.stringify(estado.db, null, 1));
-      estado.ultimoArquivo = new Date();
+      const r = await motor.sincronizar();
       estado.erro = null;
+      return r;
     } catch (e) {
       console.error(e);
-      estado.erro = 'Falha ao gravar estoque.json: ' + (e.message || e.name);
-      if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) estado.conexao = 'reconectar';
-      estado.pendenteArquivo = true;
-    } finally {
-      estado.gravandoArquivo = false;
+      if (erroDePermissao(e)) { estado.conexao = 'reconectar'; estado.erro = null; }
+      else estado.erro = 'Falha ao sincronizar: ' + (e.message || e.name);
+      return null;
+    } finally { notificar(); }
+  }
+  const agendarSincronizacao = App.util.debounce(() => { sincronizar(); }, 800);
+
+  async function executar(nome, args, autor) {
+    const r = await motor.executar(nome, args, autor);
+    if (r.erroLocal) estado.erro = 'Alteração feita, mas não foi possível salvar no navegador: ' + r.erroLocal.message;
+    agendarSincronizacao();
+    return r.resultado;
+  }
+
+  async function resolverConflito(usar) {
+    try { await motor.resolverVersoes(usar); }
+    catch (e) {
+      console.error(e);
+      if (erroDePermissao(e)) estado.conexao = 'reconectar';
+      else estado.erro = 'Falha ao gravar a versão escolhida: ' + (e.message || e.name);
       notificar();
-      if (estado.pendenteArquivo && estado.conexao === 'conectado' && !estado.erro) gravarArquivoAgora();
+      throw e;
     }
-  }
-  const gravarArquivo = App.util.debounce(gravarArquivoAgora, 300);
-
-  // ---------- API ----------
-
-  async function salvar() {
-    if (!estado.db) return;
-    await idbSet('db', estado.db);
-    if (estado.conexao === 'conectado') { estado.pendenteArquivo = true; notificar(); gravarArquivo(); }
-    else notificar();
-  }
-
-  // Compara arquivo x navegador. Retorna null quando está tudo sincronizado, ou {conflito} para o usuário decidir.
-  async function sincronizar() {
-    const arq = await lerArquivo(estado.pasta);
-    const local = estado.db;
-    if (!arq && !local) return null;
-    if (!arq) { await gravarArquivoAgora(); return null; }
-    if (!local || !local.itens.length && !local.movimentos.length) {
-      estado.db = arq.db; await idbSet('db', estado.db); notificar(); return null;
-    }
-    if (arq.db.atualizadoEm === local.atualizadoEm) { estado.ultimoArquivo = new Date(); notificar(); return null; }
-    return { conflito: { arquivo: arq.db.atualizadoEm, navegador: local.atualizadoEm, arq } };
-  }
-
-  async function resolverConflito(conflito, usar) {
-    if (usar === 'arquivo') {
-      await gravarBackup('navegador-antes-de-usar-arquivo', JSON.stringify(estado.db));
-      estado.db = conflito.arq.db;
-      await idbSet('db', estado.db);
-    } else {
-      await gravarBackup('arquivo-antes-de-usar-navegador', conflito.arq.texto);
-      await gravarArquivoAgora();
-    }
-    notificar();
+    return sincronizar();
   }
 
   async function iniciar() {
     try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (e) { /* opcional */ }
-    const salvo = await idbGet('db');
-    estado.db = salvo ? validarBanco(salvo) : null;
-    if (!suportaPasta()) { estado.conexao = 'indisponivel'; notificar(); return null; }
+    const salvo = await idbGet('sync');
+    if (salvo) motor.carregar(salvo);
+    else {
+      // Versão anterior guardava só o banco em 'db': vira a base local, ainda sem vínculo (etag) com o arquivo.
+      const antigo = await idbGet('db');
+      if (antigo) motor.carregar({ base: { db: validarBanco(antigo), etag: null, aplicadas: [] } });
+    }
+    if (!suportaPasta()) { estado.conexao = 'indisponivel'; return sincronizar(); }
     const pasta = await idbGet('pasta');
-    if (!pasta) { estado.conexao = 'sem-pasta'; notificar(); return null; }
+    if (!pasta) { estado.conexao = 'sem-pasta'; return sincronizar(); }
     estado.pasta = pasta;
     const perm = await pasta.queryPermission({ mode: 'readwrite' });
     if (perm !== 'granted') { estado.conexao = 'reconectar'; notificar(); return null; }
@@ -179,10 +143,12 @@
 
   async function escolherPasta() {
     const pasta = await window.showDirectoryPicker({ id: 'estoque-infra', mode: 'readwrite' });
+    const mesma = estado.pasta && await estado.pasta.isSameEntry(pasta).catch(() => false);
     estado.pasta = pasta;
     estado.conexao = 'conectado';
     estado.erro = null;
     await idbSet('pasta', pasta);
+    if (!mesma) await motor.desvincular(); // o etag da pasta anterior não vale para esta
     notificar();
     return sincronizar();
   }
@@ -197,25 +163,41 @@
     return sincronizar();
   }
 
-  // Substitui todos os dados (importação ou restauração), guardando antes uma cópia do estado anterior.
+  // Importação e restauração substituem tudo: exigem a fila vazia (sincroniza antes, se der).
+  async function prepararSubstituicao() {
+    if (motor.pendentes.length) await sincronizar();
+    const n = motor.pendentes.length;
+    if (n) throw new Error(`Há ${n} ${n === 1 ? 'alteração' : 'alterações'} deste computador aguardando sincronização. Conecte a pasta e clique em "Sincronizar agora" antes de substituir os dados.`);
+    if (estado.conexao === 'reconectar') throw new Error('Reconecte a pasta de dados antes de substituir os dados.');
+  }
+
+  // Grava o novo banco como base (sem virar operação), guardando antes uma cópia do estado anterior.
   async function substituirBanco(novo, motivo) {
     validarBanco(novo);
+    await prepararSubstituicao();
+    const atual = motor.db;
     let copiaFeita = false;
-    if (estado.db && (estado.db.itens.length || estado.db.movimentos.length)) {
-      copiaFeita = await gravarBackup('antes-de-' + motivo, JSON.stringify(estado.db), estado.db).catch(() => false);
-      if (!copiaFeita && App.exporter) App.exporter.baixarJSON(estado.db, 'antes-de-' + motivo);
+    if (atual && (atual.itens.length || atual.movimentos.length)) {
+      copiaFeita = await gravarBackup('antes-de-' + motivo, JSON.stringify(atual), atual).catch(() => false);
+      if (!copiaFeita && App.exporter) App.exporter.baixarJSON(atual, 'antes-de-' + motivo);
     }
-    estado.db = novo;
-    await salvar();
+    await motor.substituirBase(novo);
+    estado.erro = null;
+    notificar();
     return copiaFeita;
   }
+
+  async function descartarConflito(id) { await motor.descartarConflito(id); }
+  async function tentarConflitoDeNovo(id) { await motor.tentarDeNovo(id); agendarSincronizacao(); }
 
   function nomePasta() { return estado.pasta ? estado.pasta.name : null; }
 
   App.store = {
-    estado, iniciar, salvar, escolherPasta, reconectar, resolverConflito, substituirBanco, validarBanco,
+    estado, iniciar, executar, sincronizar, escolherPasta, reconectar, resolverConflito,
+    prepararSubstituicao, substituirBanco, validarBanco, descartarConflito, tentarConflitoDeNovo,
     gravarBackup, nomePasta, suportaPasta, onStatus: f => { ouvintes.add(f); return () => ouvintes.delete(f); },
-    get db() { return estado.db; },
-    set db(v) { estado.db = v; },
+    sync: motor,
+    remoto,
+    get db() { return motor.db; },
   };
 })(globalThis.App = globalThis.App || {});
