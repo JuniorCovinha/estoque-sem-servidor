@@ -9,7 +9,7 @@
     SALDO_INICIAL: 'Saldo inicial', ENTRADA: 'Entrada', ENTREGA: 'Entrega', DEVOLUCAO: 'Devolução',
     MANUTENCAO: 'Envio p/ manutenção', RETORNO_MANUTENCAO: 'Retorno da manutenção',
     DESCARTE: 'Descarte', AJUSTE: 'Ajuste', EDICAO: 'Edição', TONER: 'Toner',
-    EXCLUSAO: 'Exclusão (lixeira)', RESTAURACAO: 'Restauração da lixeira',
+    EXCLUSAO: 'Exclusão (lixeira)', RESTAURACAO: 'Restauração da lixeira', PESSOA: 'Cadastro de pessoas',
   };
   const STATUS_TONER = { NOVO: 'Novo', EM_USO: 'Em uso', DESCARTE: 'Descarte' };
   const DADOS_APAGADOS = { NAO_INFORMADO: 'Não informado', SIM: 'Sim', NAO: 'Não', NAO_SE_APLICA: 'Não se aplica' };
@@ -18,7 +18,7 @@
 
   function novoBanco() {
     const t = agoraISO();
-    return { schema: 1, criadoEm: t, atualizadoEm: t, itens: [], movimentos: [], toners: [] };
+    return { schema: 1, criadoEm: t, atualizadoEm: t, itens: [], movimentos: [], toners: [], pessoas: [] };
   }
 
   function erro(msg) { const e = new Error(msg); e.negocio = true; return e; }
@@ -68,7 +68,7 @@
   function registrar(db, mov) {
     const m = Object.assign({
       id: uid(), tipo: null, itemId: null, item: null, local: null, delta: 0, quantidade: 0,
-      usuario: null, chamado: null, data: hojeISO(), obs: null, importado: false, criadoEm: agoraISO(),
+      usuario: null, pessoaId: null, chamado: null, data: hojeISO(), obs: null, importado: false, criadoEm: agoraISO(),
     }, mov);
     db.movimentos.push(m);
     db.atualizadoEm = m.criadoEm;
@@ -98,7 +98,7 @@
       id: uid(), controle, categoria, descricao, serie: controle === 'unidade' ? serie : null,
       patrimonio: valorOuNulo(d.patrimonio), proprietario: limpa(d.proprietario) || 'Solar Cuidados',
       posicao: valorOuNulo(d.posicao), status: 'EM_ESTOQUE', local: d.local,
-      saldo: { MATRIZ: 0, SAO_CRISTOVAO: 0 }, responsavelAtual: null, saldoMinimo: null,
+      saldo: { MATRIZ: 0, SAO_CRISTOVAO: 0 }, responsavelAtual: null, responsavelId: null, saldoMinimo: null,
       obs: valorOuNulo(d.obs), criadoEm: t, atualizadoEm: t, origem: null,
     };
     item.saldo[d.local] = qtd;
@@ -213,8 +213,16 @@
 
   function entregar(db, id, d) {
     const item = getItem(db, id);
-    const usuario = limpa(d.usuario);
-    if (!usuario) throw erro('Informe para quem o item foi entregue.');
+    // Com pessoaId o nome vem do cadastro; sem ele continua aceitando texto (compatibilidade).
+    let pessoa = null, usuario;
+    if (d.pessoaId) {
+      pessoa = getPessoa(db, d.pessoaId);
+      if (!pessoa.ativo) throw erro(`${pessoa.nome} está inativa e não pode receber entregas. Reative o cadastro em Pessoas.`);
+      usuario = pessoa.nome;
+    } else {
+      usuario = limpa(d.usuario);
+      if (!usuario) throw erro('Informe para quem o item foi entregue.');
+    }
     const data = checaData(d.data);
     let local, q;
     if (item.controle === 'unidade') {
@@ -224,6 +232,7 @@
       item.saldo[local] -= 1;
       item.status = 'ENTREGUE';
       item.responsavelAtual = usuario;
+      item.responsavelId = pessoa ? pessoa.id : null;
     } else {
       checaLocal(d.local); local = d.local; q = checaQtd(d.quantidade);
       if (item.saldo[local] < q) throw erro(`Saldo insuficiente em ${LOCAIS[local]}: disponível ${item.saldo[local]}.`);
@@ -231,7 +240,7 @@
     }
     toque(db, item);
     return registrar(db, {
-      tipo: 'ENTREGA', itemId: id, item: snap(item), local, delta: -q, quantidade: q, usuario,
+      tipo: 'ENTREGA', itemId: id, item: snap(item), local, delta: -q, quantidade: q, usuario, pessoaId: pessoa ? pessoa.id : null,
       chamado: normalizaChamado(d.chamado), data, obs: valorOuNulo(d.obs),
     });
   }
@@ -240,6 +249,7 @@
     const item = getItem(db, id);
     checaLocal(d.local);
     const data = checaData(d.data);
+    const pessoa = d.pessoaId ? getPessoa(db, d.pessoaId) : null; // quem devolve pode estar inativa (ex-colaborador)
     let q;
     if (item.controle === 'unidade') {
       if (item.status !== 'ENTREGUE') throw erro(`Item está "${STATUS[item.status]}"; só itens entregues podem ser devolvidos.`);
@@ -248,6 +258,7 @@
       item.saldo[d.local] += 1;
       item.status = d.manutencao ? 'MANUTENCAO' : 'EM_ESTOQUE';
       item.responsavelAtual = null;
+      item.responsavelId = null;
       if (valorOuNulo(d.posicao)) item.posicao = valorOuNulo(d.posicao);
     } else {
       q = checaQtd(d.quantidade);
@@ -256,7 +267,8 @@
     toque(db, item);
     return registrar(db, {
       tipo: 'DEVOLUCAO', itemId: id, item: snap(item), local: d.local, delta: q, quantidade: q,
-      usuario: valorOuNulo(d.usuario), chamado: normalizaChamado(d.chamado), data,
+      usuario: pessoa ? pessoa.nome : valorOuNulo(d.usuario), pessoaId: pessoa ? pessoa.id : null,
+      chamado: normalizaChamado(d.chamado), data,
       obs: [valorOuNulo(d.obs), d.manutencao ? 'Devolvido com defeito: enviado para manutenção' : null].filter(Boolean).join(' — ') || null,
     });
   }
@@ -497,6 +509,289 @@
     });
   }
 
+  // ---------- Pessoas ----------
+  // Cadastro de colaboradores e setores que recebem itens (não são usuários da aplicação).
+  // O modelo já prevê a ligação futura com o diretório Microsoft: origem 'diretorio' e entraId.
+  // Todas as mutações recebem (db, args) com args serializável em JSON; ids novos nascem aqui dentro.
+
+  const TIPOS_PESSOA = { PESSOA: 'Pessoa', SETOR: 'Setor' };
+  const ORIGENS_PESSOA = { manual: 'Cadastro manual', migracao: 'Nomes antigos', diretorio: 'Diretório (Entra ID)' };
+  const CAMPOS_PESSOA = { nome: 'Nome', tipo: 'Tipo', email: 'E-mail', departamento: 'Departamento', unidade: 'Unidade', obs: 'Observação' };
+  const RE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  // Bancos antigos não têm db.pessoas: leitura trata como vazio; escrita cria a lista.
+  const pessoasDe = db => db.pessoas || (db.pessoas = []);
+  const listaPessoas = db => db.pessoas || [];
+  const chaveNome = v => chave(v).replace(/[^a-z0-9]+/g, ' ').trim();
+  const snapPessoa = p => ({ categoria: 'Pessoas', descricao: p.nome, serie: null });
+
+  function getPessoa(db, id) {
+    const p = listaPessoas(db).find(x => x.id === id);
+    if (!p) throw erro('Pessoa não encontrada.');
+    return p;
+  }
+
+  // Valida e normaliza os campos de cadastro (atual = pessoa em edição, para a checagem de e-mail único).
+  function dadosPessoa(db, d, atual) {
+    const nome = limpa(d.nome);
+    if (!nome) throw erro('Informe o nome.');
+    const tipo = d.tipo || 'PESSOA';
+    if (!Object.hasOwn(TIPOS_PESSOA, tipo)) throw erro('Tipo inválido: use Pessoa ou Setor.');
+    const email = (valorOuNulo(d.email) || '').toLowerCase() || null;
+    if (email && !RE_EMAIL.test(email)) throw erro(`E-mail inválido: ${email}.`);
+    const outro = email && listaPessoas(db).find(p => p.id !== (atual && atual.id) && p.email && p.email.toLowerCase() === email);
+    if (outro) throw erro(`O e-mail ${email} já pertence a ${outro.nome}.`);
+    const unidade = valorOuNulo(d.unidade);
+    if (unidade && !Object.hasOwn(LOCAIS, unidade)) throw erro('Unidade inválida.');
+    const r = { nome, tipo, email, departamento: valorOuNulo(d.departamento), unidade: unidade || null, obs: valorOuNulo(d.obs) };
+    for (const [k, max] of [['nome', 200], ['email', 254], ['departamento', 200], ['obs', 1000]]) {
+      if (r[k] && r[k].length > max) throw erro(`${CAMPOS_PESSOA[k]} muito longo (máximo ${max} caracteres).`);
+    }
+    return r;
+  }
+
+  function inserirPessoa(db, dados, origem, entraId) {
+    const eid = valorOuNulo(entraId);
+    if (eid && listaPessoas(db).some(p => p.entraId === eid)) throw erro('Já existe pessoa com este identificador do diretório.');
+    const t = agoraISO();
+    const p = Object.assign({ id: uid() }, dados, {
+      ativo: true, origem: Object.hasOwn(ORIGENS_PESSOA, origem) ? origem : 'manual', entraId: eid || null, criadoEm: t, atualizadoEm: t,
+    });
+    pessoasDe(db).push(p);
+    return p;
+  }
+
+  // d: { tipo, nome, email, departamento, unidade, obs, origem?, entraId? }
+  function criarPessoa(db, d) {
+    const p = inserirPessoa(db, dadosPessoa(db, d || {}, null), (d || {}).origem, (d || {}).entraId);
+    registrar(db, {
+      tipo: 'PESSOA', pessoaId: p.id, item: snapPessoa(p),
+      obs: `${TIPOS_PESSOA[p.tipo]} cadastrado(a): ${p.nome}${p.departamento ? ' (' + p.departamento + ')' : ''}`,
+    });
+    return p;
+  }
+
+  // d: { id, ...campos }. Campo ausente = não alterar; '' apaga (exceto nome).
+  function editarPessoa(db, d) {
+    const p = getPessoa(db, d && d.id);
+    const mesclado = {};
+    for (const k of Object.keys(CAMPOS_PESSOA)) mesclado[k] = d[k] !== undefined ? d[k] : p[k];
+    const novo = dadosPessoa(db, mesclado, p);
+    const rot = (k, v) => k === 'tipo' ? TIPOS_PESSOA[v] : k === 'unidade' ? (LOCAIS[v] || '') : (v ?? '');
+    const alteracoes = [];
+    for (const k of Object.keys(CAMPOS_PESSOA)) {
+      if ((p[k] ?? null) !== (novo[k] ?? null)) alteracoes.push({ campo: k, rotulo: CAMPOS_PESSOA[k], de: p[k] ?? null, para: novo[k] ?? null });
+    }
+    if (!alteracoes.length) return null;
+    const renomeou = alteracoes.some(a => a.campo === 'nome');
+    Object.assign(p, novo);
+    p.atualizadoEm = agoraISO();
+    if (renomeou) for (const it of db.itens) if (it.responsavelId === p.id) it.responsavelAtual = p.nome; // texto de exibição acompanha o cadastro
+    return registrar(db, {
+      tipo: 'PESSOA', pessoaId: p.id, item: snapPessoa(p), alteracoes,
+      obs: alteracoes.map(a => `${a.rotulo}: "${rot(a.campo, a.de)}" → "${rot(a.campo, a.para)}"`).join('; '),
+    });
+  }
+
+  // Pessoa com histórico nunca é apagada: só desativada (deixa de aparecer nas novas entregas).
+  function desativarPessoa(db, d) {
+    const p = getPessoa(db, d && d.id);
+    if (!p.ativo) throw erro(`${p.nome} já está inativa.`);
+    const n = itensComPessoa(db, p.id).reduce((s, x) => s + x.quantidade, 0);
+    p.ativo = false;
+    p.atualizadoEm = agoraISO();
+    return registrar(db, {
+      tipo: 'PESSOA', pessoaId: p.id, item: snapPessoa(p),
+      obs: `Cadastro desativado${n ? ` (ainda com ${n} item(ns))` : ''}${valorOuNulo(d.motivo) ? ' — ' + valorOuNulo(d.motivo) : ''}`,
+    });
+  }
+
+  function reativarPessoa(db, d) {
+    const p = getPessoa(db, d && d.id);
+    if (p.ativo) throw erro(`${p.nome} já está ativa.`);
+    p.ativo = true;
+    p.atualizadoEm = agoraISO();
+    return registrar(db, { tipo: 'PESSOA', pessoaId: p.id, item: snapPessoa(p), obs: 'Cadastro reativado' });
+  }
+
+  // --- Consultas de pessoas ---
+
+  // Nome de exibição do responsável: o do cadastro quando há vínculo, senão o texto antigo.
+  function nomeResponsavel(db, item, mapa) {
+    if (item.responsavelId) {
+      const p = mapa ? mapa.get(item.responsavelId) : listaPessoas(db).find(x => x.id === item.responsavelId);
+      if (p) return p.nome;
+    }
+    return item.responsavelAtual || '';
+  }
+
+  // Mapa pessoaId -> [{ item, controle, quantidade, desde }] do que está atualmente com cada pessoa.
+  // Itens por unidade: situação ENTREGUE com responsavelId. Itens por quantidade: entregas com pessoaId menos
+  // devoluções registradas com o mesmo pessoaId (devolução sem pessoa não abate). Itens na Lixeira ficam de fora.
+  function posicoesPessoas(db) {
+    const itens = new Map(db.itens.filter(ativo).map(i => [i.id, i]));
+    const ultimaDoItem = new Map();   // itemId -> data da última entrega (qualquer pessoa)
+    const porPessoa = new Map();      // pessoaId -> Map(itemId -> { quantidade, desde })
+    for (const m of db.movimentos) {
+      if (m.tipo !== 'ENTREGA' && m.tipo !== 'DEVOLUCAO') continue;
+      if (m.tipo === 'ENTREGA' && m.data && (ultimaDoItem.get(m.itemId) || '') < m.data) ultimaDoItem.set(m.itemId, m.data);
+      const it = m.pessoaId && itens.get(m.itemId);
+      if (!it || it.controle !== 'quantidade') continue;
+      let mp = porPessoa.get(m.pessoaId);
+      if (!mp) porPessoa.set(m.pessoaId, mp = new Map());
+      const e = mp.get(m.itemId) || { quantidade: 0, desde: null };
+      if (m.tipo === 'ENTREGA') { e.quantidade += m.quantidade || 0; if (m.data && (e.desde || '') < m.data) e.desde = m.data; }
+      else e.quantidade -= m.quantidade || 0;
+      mp.set(m.itemId, e);
+    }
+    const r = new Map();
+    const add = (pid, x) => { if (!r.has(pid)) r.set(pid, []); r.get(pid).push(x); };
+    for (const [pid, mp] of porPessoa) {
+      for (const [itemId, e] of mp) if (e.quantidade > 0) add(pid, { item: itens.get(itemId), controle: 'quantidade', quantidade: e.quantidade, desde: e.desde });
+    }
+    for (const it of itens.values()) {
+      if (it.controle === 'unidade' && it.status === 'ENTREGUE' && it.responsavelId) add(it.responsavelId, { item: it, controle: 'unidade', quantidade: 1, desde: ultimaDoItem.get(it.id) || null });
+    }
+    const ord = (a, b) => a.item.categoria.localeCompare(b.item.categoria, 'pt-BR') || a.item.descricao.localeCompare(b.item.descricao, 'pt-BR');
+    for (const lista of r.values()) lista.sort(ord);
+    return r;
+  }
+
+  const itensComPessoa = (db, pessoaId) => posicoesPessoas(db).get(pessoaId) || [];
+
+  // Entregas e devoluções registradas com a pessoa, mais recentes primeiro.
+  function historicoPessoa(db, pessoaId) {
+    return db.movimentos.filter(m => m.pessoaId === pessoaId && (m.tipo === 'ENTREGA' || m.tipo === 'DEVOLUCAO'))
+      .sort((a, b) => String(b.data || '').localeCompare(String(a.data || '')) || String(b.criadoEm).localeCompare(String(a.criadoEm)));
+  }
+
+  // --- Migração dos nomes antigos (texto livre) ---
+
+  const RE_SETOR = /^(filial|matriz|setor|departamento|depto|unidade|loja|sede|diretoria|gerencia|coordenacao|equipe|time|almoxarifado|recepcao|escritorio)\b/;
+  const PARTICULAS = new Set(['da', 'de', 'do', 'das', 'dos', 'e']);
+
+  // "Nome (Setor)" -> nome + departamento sugerido.
+  function separaNomeSetor(t) {
+    const m = t.match(/^(.*?)\s*\(([^()]*)\)\s*$/);
+    if (m && limpa(m[1])) return { nome: limpa(m[1]), departamento: limpa(m[2]) || null };
+    return { nome: t, departamento: null };
+  }
+
+  // Motivo pelo qual o texto parece um setor/unidade (só sugestão; quem decide é o usuário).
+  function motivoSetor(nome) {
+    if (RE_SETOR.test(chave(nome))) return 'começa com palavra de setor/unidade';
+    if (!/\s/.test(nome) && nome === nome.toUpperCase() && /\p{L}/u.test(nome)) return 'texto em maiúsculas, sem espaço (sigla?)';
+    return null;
+  }
+
+  function capitalizarNome(n) {
+    if (n !== n.toUpperCase() && n !== n.toLowerCase()) return n;                 // já tem caixa mista
+    if (!/\s/.test(n) && n === n.toUpperCase() && n.length > 1) return n;         // uma palavra em maiúsculas: mantém
+    return n.toLowerCase().split(' ').map((w, i) => i > 0 && PARTICULAS.has(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  }
+
+  // Textos distintos de movimento.usuario / item.responsavelAtual ainda sem vínculo, agrupados por nome normalizado
+  // (sem acento/caixa/espaços/pontuação; "Nome (Setor)" agrupa com "Nome"). Não altera nada.
+  function gruposNomesAntigos(db) {
+    const porChave = new Map();
+    const variantes = new Map();
+    const ver = (texto, campo) => {
+      const t = limpa(texto);
+      if (!t) return;
+      let v = variantes.get(chave(t));
+      if (!v) {
+        const sep = separaNomeSetor(t);
+        v = { texto: t, nome: sep.nome, departamento: sep.departamento, movimentos: 0, itens: 0 };
+        variantes.set(chave(t), v);
+        const k = chaveNome(sep.nome) || chave(t);
+        let g = porChave.get(k);
+        if (!g) porChave.set(k, g = { id: k, variantes: [] });
+        g.variantes.push(v);
+      }
+      v[campo]++;
+    };
+    for (const m of db.movimentos) if (!m.pessoaId && m.usuario) ver(m.usuario, 'movimentos');
+    for (const it of db.itens) if (!it.responsavelId && it.responsavelAtual) ver(it.responsavelAtual, 'itens');
+
+    const existentes = new Map();
+    for (const p of listaPessoas(db)) {
+      const k = chaveNome(p.nome);
+      if (k && (!existentes.has(k) || (p.ativo && !existentes.get(k).ativo))) existentes.set(k, p);
+    }
+    const peso = v => v.movimentos + v.itens;
+    const misto = s => s !== s.toUpperCase() && s !== s.toLowerCase();
+    return [...porChave.values()].map(g => {
+      const ord = g.variantes.slice().sort((a, b) => peso(b) - peso(a) || Number(misto(b.nome)) - Number(misto(a.nome)));
+      const motivo = motivoSetor(ord[0].nome);
+      const comDepto = ord.find(v => v.departamento);
+      const ex = existentes.get(g.id);
+      return {
+        id: g.id,
+        nome: motivo ? ord[0].nome : capitalizarNome(ord[0].nome),
+        departamento: comDepto ? comDepto.departamento : null,
+        tipoSugerido: motivo ? 'SETOR' : 'PESSOA',
+        motivoSetor: motivo,
+        variantes: ord.map(v => ({ texto: v.texto, movimentos: v.movimentos, itens: v.itens })),
+        movimentos: ord.reduce((s, v) => s + v.movimentos, 0),
+        itens: ord.reduce((s, v) => s + v.itens, 0),
+        existenteId: ex ? ex.id : null,
+      };
+    }).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  }
+
+  // d.decisoes: [{ acao: 'criar'|'setor'|'vincular'|'ignorar', nomes: [textos originais],
+  //                pessoa: { nome, departamento, unidade, email } (criar/setor), pessoaId (vincular) }]
+  // Tudo é validado antes da primeira alteração. Os textos originais de movimento.usuario são preservados;
+  // ganham só pessoaId. Itens: responsavelId (e responsavelAtual passa a ser o nome do cadastro).
+  function vincularNomesAntigos(db, d) {
+    const decisoes = Array.isArray(d && d.decisoes) ? d.decisoes : [];
+    if (!decisoes.length) throw erro('Nenhuma decisão informada.');
+    const usados = new Set(), emails = new Set(), plano = [];
+    for (const dec of decisoes) {
+      if (!['criar', 'setor', 'vincular', 'ignorar'].includes(dec.acao)) throw erro('Ação inválida na decisão.');
+      if (dec.acao === 'ignorar') continue;
+      const nomes = (dec.nomes || []).map(limpa).filter(Boolean);
+      if (!nomes.length) throw erro('Decisão sem nomes para vincular.');
+      const chaves = new Set(nomes.map(chave));
+      for (const k of chaves) {
+        if (usados.has(k)) throw erro(`O texto "${k}" aparece em mais de uma decisão.`);
+        usados.add(k);
+      }
+      if (dec.acao === 'vincular') {
+        plano.push({ nomes, chaves, pessoa: getPessoa(db, dec.pessoaId) });
+      } else {
+        const dados = dadosPessoa(db, Object.assign({}, dec.pessoa, { tipo: dec.acao === 'setor' ? 'SETOR' : 'PESSOA' }), null);
+        if (dados.email) {
+          if (emails.has(dados.email)) throw erro(`O e-mail ${dados.email} aparece em mais de uma pessoa nova.`);
+          emails.add(dados.email);
+        }
+        plano.push({ nomes, chaves, dados });
+      }
+    }
+    if (!plano.length) throw erro('Nenhum vínculo a aplicar (todos ignorados).');
+    const lote = uid();
+    const res = { pessoasCriadas: 0, movimentosVinculados: 0, itensVinculados: 0 };
+    for (const g of plano) {
+      const p = g.pessoa || inserirPessoa(db, g.dados, 'migracao');
+      if (!g.pessoa) res.pessoasCriadas++;
+      let nm = 0, ni = 0;
+      for (const m of db.movimentos) {
+        if (!m.pessoaId && m.usuario && g.chaves.has(chave(m.usuario))) { m.pessoaId = p.id; nm++; }
+      }
+      for (const it of db.itens) {
+        if (!it.responsavelId && it.responsavelAtual && g.chaves.has(chave(it.responsavelAtual))) {
+          it.responsavelId = p.id; it.responsavelAtual = p.nome; it.atualizadoEm = agoraISO(); ni++;
+        }
+      }
+      res.movimentosVinculados += nm; res.itensVinculados += ni;
+      registrar(db, {
+        tipo: 'PESSOA', pessoaId: p.id, item: snapPessoa(p), lote,
+        obs: `Nomes antigos vinculados a ${p.nome}: ${g.nomes.map(n => `"${n}"`).join(', ')} — ${nm} movimentação(ões) e ${ni} item(ns)${g.pessoa ? '' : ' (cadastro criado nesta operação)'}`,
+      });
+    }
+    return res;
+  }
+
   // ---------- Consultas ----------
 
   function uniq(arr) {
@@ -551,6 +846,21 @@
         }
       }
     }
+    // Pessoas: e-mail único e vínculos que apontam para cadastros existentes.
+    const pessoaIds = new Set(listaPessoas(db).map(p => p.id));
+    const emailsVistos = new Map();
+    for (const p of listaPessoas(db)) {
+      const e = p.email && p.email.toLowerCase();
+      if (!e) continue;
+      if (emailsVistos.has(e)) problemas.push({ msg: `E-mail ${e} repetido entre ${emailsVistos.get(e)} e ${p.nome}.` });
+      else emailsVistos.set(e, p.nome);
+    }
+    for (const it of db.itens) {
+      if (it.responsavelId && !pessoaIds.has(it.responsavelId)) problemas.push({ itemId: it.id, msg: `${it.categoria} — ${it.descricao}: responsável aponta para uma pessoa que não existe.` });
+    }
+    let semPessoa = 0;
+    for (const m of db.movimentos) if (m.pessoaId && !pessoaIds.has(m.pessoaId)) semPessoa++;
+    if (semPessoa) problemas.push({ msg: `${semPessoa} movimentação(ões) apontam para uma pessoa que não existe.` });
     return problemas;
   }
 
@@ -561,5 +871,7 @@
     entrada, entregar, devolver, enviarManutencao, retornarManutencao, descartar, editarDescarte, editarDescartesEmLote, ajustar,
     adicionarToner, mudarStatusToner, editarToner, excluirToner, restaurarToner,
     listas, categoriaUsaSerie, guardaDados, verificarConsistencia,
+    TIPOS_PESSOA, ORIGENS_PESSOA, CAMPOS_PESSOA, criarPessoa, editarPessoa, desativarPessoa, reativarPessoa, vincularNomesAntigos,
+    getPessoa, listaPessoas, chaveNome, nomeResponsavel, posicoesPessoas, itensComPessoa, historicoPessoa, gruposNomesAntigos,
   };
 })(globalThis.App = globalThis.App || {});

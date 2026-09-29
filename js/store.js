@@ -58,6 +58,9 @@
     for (const it of obj.itens) {
       if (!it || typeof it.id !== 'string' || !it.saldo || typeof it.saldo.MATRIZ !== 'number') throw new Error('Dados inválidos: item malformado.');
     }
+    // Bancos antigos não têm o cadastro de pessoas: tratado como lista vazia.
+    if (obj.pessoas === undefined || obj.pessoas === null) obj.pessoas = [];
+    if (!Array.isArray(obj.pessoas) || obj.pessoas.some(p => !p || typeof p.id !== 'string')) throw new Error('Dados inválidos: cadastro de pessoas malformado.');
     return obj;
   }
 

@@ -80,11 +80,37 @@
   }
   const campoInfo = () => ({ nome: '_info', tipo: 'info', conteudo: v => infoItem(itemDe(v.itemId)) });
 
+  // ---------- Pessoa (seletor das entregas e devoluções) ----------
+  function rotuloPessoa(p) {
+    return p.nome + (p.departamento ? ` — ${p.departamento}` : '') + (p.tipo === 'SETOR' ? ' (setor)' : '') + (p.ativo ? '' : ' (inativa)');
+  }
+  App.uiRotuloPessoa = rotuloPessoa;
+
+  // Seletor de pessoa cadastrada (mesmo autocomplete do item). Na entrega só as ativas; na devolução, todas.
+  function campoPessoa(rotulo, soAtivas, extra) {
+    return Object.assign({
+      nome: 'pessoaId', rotulo, tipo: 'item', manterAoContinuar: true,
+      itens: () => L.listaPessoas(db()).filter(p => !soAtivas || p.ativo).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
+      rotuloDe: rotuloPessoa, chavesExtra: p => [p.email],
+      placeholder: 'Digite o nome, o setor ou o e-mail…', msgSelecione: 'Selecione uma pessoa cadastrada (ou cadastre uma nova).',
+    }, extra);
+  }
+
+  // Botão "+ cadastrar nova pessoa": abre o cadastro por cima do formulário e já seleciona a pessoa criada.
+  function botaoNovaPessoa(formRef) {
+    return h('button', { type: 'button', class: 'btn fantasma', onclick: () => {
+      const campo = formRef.f.api.campo('pessoaId');
+      App.pessoasUI.abrirNova({ nome: campo.ctrl.value, aoCriar: p => { campo.recarregar(); formRef.f.api.set('pessoaId', p.id); } });
+    } }, '+ Cadastrar nova pessoa');
+  }
+
   // ---------- Entrega ----------
   const disponivelEntrega = it => (it.controle === 'unidade' && it.status === 'EM_ESTOQUE') || (it.controle === 'quantidade' && L.total(it) > 0);
 
   function abrirEntrega(itemId) {
-    UI.formulario({
+    const formRef = {};
+    formRef.f = UI.formulario({
+      rodapeEsquerda: botaoNovaPessoa(formRef),
       titulo: 'Registrar entrega',
       subtitulo: 'Baixa o item do estoque e registra para quem foi entregue.',
       campos: [
@@ -93,7 +119,7 @@
         { nome: 'local', rotulo: 'Sai de', tipo: 'select', opcoes: opLocais, valor: 'MATRIZ', visivel: ehQtd },
         { nome: 'quantidade', rotulo: 'Quantidade', tipo: 'number', valor: '1', min: 1, passo: 1, obrigatorio: true, visivel: ehQtd,
           dicaDinamica: v => { const it = itemDe(v.itemId); return it && it.controle === 'quantidade' ? { texto: `Disponível em ${L.LOCAIS[v.local]}: ${it.saldo[v.local]}` } : null; } },
-        { nome: 'usuario', rotulo: 'Entregue para', obrigatorio: true, lista: () => L.listas.usuarios(db()), manterAoContinuar: true, placeholder: 'Nome (setor)' },
+        campoPessoa('Entregue para', true, { obrigatorio: true }),
         campoChamado({ manterAoContinuar: true }),
         campoData(),
         campoObs(),
@@ -111,19 +137,25 @@
   const disponivelDevolucao = it => (it.controle === 'unidade' && it.status === 'ENTREGUE') || it.controle === 'quantidade';
 
   function abrirDevolucao(itemId) {
-    UI.formulario({
+    const formRef = {};
+    formRef.f = UI.formulario({
+      rodapeEsquerda: botaoNovaPessoa(formRef),
       titulo: 'Registrar devolução',
       subtitulo: 'Item volta ao estoque (ou para manutenção, se voltou com defeito).',
       campos: [
         campoItem(disponivelDevolucao, {
           valor: itemId || '', chamarAoAbrir: true,
-          aoMudar: (v, api) => { const it = itemDe(v.itemId); api.set('local', localPadrao(it)); if (it && it.responsavelAtual) api.set('usuario', it.responsavelAtual); },
+          aoMudar: (v, api) => { const it = itemDe(v.itemId); api.set('local', localPadrao(it)); if (it && it.responsavelId) api.set('pessoaId', it.responsavelId); },
         }),
         campoInfo(),
         { nome: 'local', rotulo: 'Volta para', tipo: 'select', opcoes: opLocais, valor: 'MATRIZ' },
         { nome: 'quantidade', rotulo: 'Quantidade', tipo: 'number', valor: '1', min: 1, passo: 1, obrigatorio: true, visivel: ehQtd },
         { nome: 'posicao', rotulo: 'Guardar na posição', lista: () => L.listas.posicoes(db()), visivel: ehUnid, dica: 'Opcional. Ex.: A P3' },
-        { nome: 'usuario', rotulo: 'Devolvido por', lista: () => L.listas.usuarios(db()) },
+        campoPessoa('Devolvido por', false, {
+          manterAoContinuar: false, // cada item volta de um responsável diferente: não repete a pessoa
+          dicaDinamica: v => { const it = itemDe(v.itemId); return it && it.responsavelAtual && !it.responsavelId && !v.pessoaId
+            ? { texto: `Registrado antes do cadastro como "${it.responsavelAtual}": escolha a pessoa (ou vincule em Pessoas → Vincular nomes antigos).`, warn: true } : null; },
+        }),
         campoChamado(),
         campoData(),
         { nome: 'manutencao', rotulo: 'Voltou com defeito: enviar para manutenção', tipo: 'checkbox', visivel: ehUnid, largo: true },

@@ -34,6 +34,9 @@ Ao reabrir, o Chrome pode pedir para **Reconectar** a pasta (um clique no topo d
 | Excluir item ou toner (vai para a Lixeira) | menu **⋯ → Excluir…** |
 | Consultar ou recuperar excluídos | aba **Lixeira → Restaurar** |
 | Preencher a cor dos toners já importados | **Dados e backup → Atualizar cores dos toners pela planilha…** |
+| Cadastrar colaborador ou setor que recebe itens | aba **Pessoas → + Nova pessoa** (ou **+ Cadastrar nova pessoa** dentro da entrega/devolução) |
+| Aproveitar os nomes já digitados nas entregas antigas | **Pessoas → Vincular nomes antigos…** (você decide, grupo a grupo; nada é criado sozinho) |
+| Ver com quem está cada item / preparar inventário por colaborador | **Pessoas → número na coluna "Itens com a pessoa"** → **Exportar lista (.xlsx)** |
 | Ver tudo o que aconteceu com um item | menu **⋯ → Histórico** |
 | Planilha para backup | **Dados e backup → Baixar planilha (.xlsx)** |
 
@@ -44,6 +47,9 @@ Atalho: `/` vai para a busca.
 - O saldo só muda por movimentação (entrada, entrega, devolução, ajuste, descarte). Tudo fica no histórico.
 - Nº de série é único.
 - Toner: só os **novos** contam como estoque.
+- Pessoas: "Entregue para" e "Devolvido por" escolhem um cadastro. Pessoa inativa não recebe novas entregas, mas pode devolver; cadastro com histórico nunca é apagado, só desativado. E-mail é único.
+- Colaboradores não acessam a aplicação (são só cadastro). O modelo já guarda `origem` e `entraId` para a futura ligação com o diretório Microsoft (Entra ID).
+- Itens por quantidade "com a pessoa" = entregues a ela menos o que voltou registrado no nome dela.
 - Saldo mínimo / solicitar compra: fora do MVP (o campo existe e foi preservado, vazio).
 
 ## Arquivos
@@ -55,10 +61,11 @@ css/marca.css         grafismo orbital no topo
 img/                  logo e grafismo originais da marca (sem alteração)
 js/                   util, ledger (regras), importer, exporter, store (gravação), ui-*
 vendor/xlsx.full.min.js   SheetJS 0.20.3 (SHA-256 cc015130aa8521e7f088f88898eba949ccdcbfb38df0bd129b44b7273c3a6f41)
-test/                 testes: node test/testes.js e node test/testes-lote.js
+test/                 testes: node test/testes.js, node test/testes-lote.js e node test/testes-pessoas.js
 ```
 
 ## Segurança e LGPD
 
 - Os arquivos de dados e backups contêm nomes de colaboradores: mantenha-os só em pastas com acesso restrito à TI.
+- O cadastro de pessoas guarda nome, e-mail e departamento (dados pessoais, LGPD): cadastre só o necessário e desative quem saiu da empresa. As planilhas exportadas (backup e "itens com a pessoa") também os contêm.
 - Nenhum dado sai da máquina: não há chamadas de rede; a biblioteca de planilhas é local.
