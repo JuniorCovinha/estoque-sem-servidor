@@ -154,11 +154,43 @@
     return [...aplicadas].filter(([, em]) => !(Date.parse(em) < limite));
   }
 
+  // ---------- Versão do aplicativo ----------
+  // O arquivo guarda a versão de quem gravou e a maior versão que já gravou nele. Um computador com versão
+  // menor que a maior já vista está desatualizado: é avisado e fica em consulta (ver js/store.js).
+  const VERSAO_APP = '2.2.0';
+  let versaoMaximaVista = null;
+
+  function compararVersoes(a, b) {
+    const pa = String(a || '0').split('.').map(n => parseInt(n, 10) || 0);
+    const pb = String(b || '0').split('.').map(n => parseInt(n, 10) || 0);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const d = (pa[i] || 0) - (pb[i] || 0);
+      if (d) return d > 0 ? 1 : -1;
+    }
+    return 0;
+  }
+  const RE_VERSAO = /^\d{1,4}(\.\d{1,4}){0,3}$/;
+  const maiorVersao = (a, b) => (!a ? b : !b ? a : compararVersoes(a, b) >= 0 ? a : b);
+
   function serializarRemoto(db, aplicadas) {
+    versaoMaximaVista = maiorVersao(versaoMaximaVista, VERSAO_APP);
     return JSON.stringify({
       formato: FORMATO, schema: SCHEMA_REMOTO, atualizadoEm: db.atualizadoEm,
+      versaoApp: VERSAO_APP, versaoMaxima: versaoMaximaVista,
       operacoesAplicadas: Object.fromEntries(podar(aplicadas)), db,
     }, null, 1);
+  }
+
+  // Registra a versão encontrada no arquivo lido (só valores no formato esperado).
+  function registrarVersaoLida(obj) {
+    for (const v of [obj && obj.versaoMaxima, obj && obj.versaoApp]) {
+      if (typeof v === 'string' && RE_VERSAO.test(v)) versaoMaximaVista = maiorVersao(versaoMaximaVista, v);
+    }
+  }
+
+  // { atual, maxima, desatualizado }: desatualizado quando outro computador já gravou com versão maior.
+  function situacaoVersao() {
+    return { atual: VERSAO_APP, maxima: versaoMaximaVista, desatualizado: !!versaoMaximaVista && compararVersoes(versaoMaximaVista, VERSAO_APP) > 0 };
   }
 
   function lerAplicadas(obj) {
@@ -181,6 +213,7 @@
     };
     if (obj && obj.schema === 1) return { db: validado(obj), aplicadas: new Map(), legado: true };
     if (!obj || obj.formato !== FORMATO || obj.schema !== SCHEMA_REMOTO) throw erroSync('invalido', 'Formato do arquivo de dados não reconhecido.');
+    registrarVersaoLida(obj);
     return { db: validado(obj.db), aplicadas: lerAplicadas(obj.operacoesAplicadas), legado: false };
   }
 
@@ -628,5 +661,6 @@
     FORMATO, SCHEMA_REMOTO, OPERACOES, LIMITE_TEXTO, DIARIO_DIAS, RETENCAO_IDS_DIAS, registrarOperacao, rotuloOperacao, permitida,
     novaOperacao, validarOperacao, aplicar, reaplicar, serializarRemoto, abrirRemoto, extrairBanco, operacoesPresentes,
     erroSync, erroPrecondicao, erroOffline, ehPrecondicao, criarMotor, criarFila,
+    VERSAO_APP, compararVersoes, situacaoVersao,
   };
 })(globalThis.App = globalThis.App || {});

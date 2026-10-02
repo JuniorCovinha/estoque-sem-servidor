@@ -21,6 +21,11 @@ Para ter um atalho na área de trabalho, rode uma vez **`Criar atalho na area de
 Ao reabrir, o Chrome pode pedir para **Reconectar** a pasta (um clique no topo da tela).
 Enquanto a pasta estiver desconectada, as alterações ficam guardadas no navegador e são enviadas ao reconectar.
 
+## Compartilhar pela pasta do SharePoint
+
+Veja **[GUIA-INSTALACAO.md](GUIA-INSTALACAO.md)** (estrutura `app` + `dados`, permissões, instalação em cada PC, planilha de consulta `estoque-consulta.xlsx`, modo consulta e atualização do aplicativo).
+A cada versão publicada, aumente `VERSAO_APP` em `js/sync.js`: computadores com versão antiga são avisados e ficam em consulta.
+
 ## Sincronização (vários computadores)
 
 - Cada alteração é uma **operação** (ex.: "entregar item X a Fulana") com autor e horário. O topo mostra
@@ -87,7 +92,7 @@ js/remoto.js          armazenamento remoto: pasta (padrão), memória (testes), 
 js/sessao.js          quem está usando (autor das operações)
 js/store.js           IndexedDB, pasta escolhida e ligação com a sincronização
 vendor/xlsx.full.min.js   SheetJS 0.20.3 (SHA-256 cc015130aa8521e7f088f88898eba949ccdcbfb38df0bd129b44b7273c3a6f41)
-test/                 testes: node test/testes.js, testes-lote.js, testes-sync.js, testes-pessoas.js e testes-revisao.js
+test/                 testes: node test/testes.js, testes-lote.js, testes-sync.js, testes-pessoas.js, testes-revisao.js e testes-compartilhamento.js
                       (poc-revisao.js: provas de conceito da revisão; deve reportar 0 reproduzidos)
 ```
 

@@ -103,6 +103,30 @@
     return XLSX.write(montarPlanilha(db), { bookType: 'xlsx', type: 'array', compression: true });
   }
 
+  // Planilha de consulta gravada na pasta compartilhada: mesma planilha do backup, com uma aba "LEIA-ME"
+  // no início. É só leitura: o que for digitado nela não volta para o aplicativo.
+  function planilhaConsultaBinaria(db, info) {
+    const wb = montarPlanilha(db);
+    const leia = [
+      ['Estoque TI — planilha de consulta'],
+      [],
+      ['Esta planilha é gerada automaticamente pelo aplicativo Estoque TI a cada alteração.'],
+      ['NÃO EDITE: o que for alterado aqui não volta para o aplicativo e será substituído na próxima atualização.'],
+      ['Para lançar entregas, devoluções e demais alterações, use o aplicativo.'],
+      [],
+      ['Dados atualizados em', fmtDataHora(db.atualizadoEm)],
+      ['Planilha gerada em', fmtDataHora(new Date().toISOString())],
+      ['Gerada por', (info && info.autor) || ''],
+      ['Versão do aplicativo', (info && info.versao) || ''],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(leia);
+    ws['!cols'] = [{ wch: 26 }, { wch: 60 }];
+    wb.SheetNames.unshift('LEIA-ME');
+    wb.Sheets['LEIA-ME'] = ws;
+    wb.Props = Object.assign({}, wb.Props, { Title: 'Estoque TI — planilha de consulta (gerada automaticamente)' });
+    return XLSX.write(wb, { bookType: 'xlsx', type: 'array', compression: true });
+  }
+
   function montarPlanilhaPessoa(db, pessoaId) {
     const p = L.getPessoa(db, pessoaId);
     const wb = XLSX.utils.book_new();
@@ -148,6 +172,6 @@
     baixar(new Blob([JSON.stringify(db, null, 1)], { type: 'application/json' }), `${prefixo || 'estoque-backup'}-${hojeISO()}.json`);
   }
 
-  App.exporter = { montarPlanilha, planilhaBinaria, baixarPlanilha, baixarCSVEstoque, baixarJSON, celulaSeguraCSV, linhasEstoque, linhasMovimentos, linhasDescarte,
+  App.exporter = { montarPlanilha, planilhaBinaria, planilhaConsultaBinaria, baixarPlanilha, baixarCSVEstoque, baixarJSON, celulaSeguraCSV, linhasEstoque, linhasMovimentos, linhasDescarte,
     linhasPessoas, linhasItensPessoa, linhasHistoricoPessoa, montarPlanilhaPessoa, baixarItensPessoa };
 })(globalThis.App = globalThis.App || {});

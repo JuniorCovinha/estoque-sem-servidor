@@ -96,12 +96,38 @@
       return nomes.sort();
     }
 
+    // Arquivo derivado ao lado do estoque.json (ex.: a planilha de consulta). Nunca o próprio estoque.json.
+    async function gravarArquivoDerivado(nome, conteudo) {
+      const dir = o.obterPasta();
+      if (!dir) throw App.sync.erroOffline('Pasta de dados desconectada.');
+      if (!/^[\w.-]+\.xlsx$/i.test(nome) || nome.toLowerCase() === ARQUIVO) throw new Error('Nome de arquivo derivado inválido.');
+      await escrever(dir, nome, conteudo);
+    }
+
+    // Tenta criar e apagar um arquivo de teste: false = a pasta não aceita gravação (ex.: permissão só de leitura).
+    // Melhor esforço: numa pasta do OneDrive só de leitura, a gravação local às vezes é aceita e só falha no envio.
+    async function testarEscrita() {
+      const dir = o.obterPasta();
+      if (!dir) return null;
+      const nome = '.estoque-teste-escrita';
+      try {
+        await escrever(dir, nome, 'ok');
+        try { await dir.removeEntry(nome); } catch (e) { /* sem importância */ }
+        return true;
+      } catch (e) {
+        if (e && (e.name === 'NoModificationAllowedError' || e.name === 'InvalidModificationError' || e.name === 'NotAllowedError')) return false;
+        throw e;
+      }
+    }
+
     return {
       nome: 'Pasta',
       arquivo: ARQUIVO,
       disponivel: () => !!o.obterPasta(),
       backup,
       copiasExtras,
+      gravarArquivoDerivado,
+      testarEscrita,
       async ler() {
         const dir = o.obterPasta();
         if (!dir) throw App.sync.erroOffline('Pasta de dados desconectada.');

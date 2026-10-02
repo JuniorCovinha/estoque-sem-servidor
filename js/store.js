@@ -15,6 +15,7 @@
     erro: null,
     copiasExtras: [],     // outros estoque*.json na pasta (cópias de conflito do OneDrive)
     corrompido: null,     // chave do IndexedDB com a cópia do estado local inválido
+    planilhaConsulta: { nome: 'estoque-consulta.xlsx', ultima: null, erro: null }, // planilha gerada na pasta
   };
   const ouvintes = new Set();
   function notificar() { ouvintes.forEach(f => { try { f(estado); } catch (e) { console.error(e); } }); }
@@ -209,6 +210,75 @@
     persistir: s => idbSet('sync', s),
   });
 
+  // ---------- Modo consulta (permissão) ----------
+  // O bloqueio real é do SharePoint (quem só lê não grava). Aqui o app reflete isso na tela (App.permissao):
+  // quem marcou "só consulta" pede só leitura da pasta; a detecção automática é a segunda proteção.
+  const ehConsultaManual = () => !!(App.permissao && App.permissao.manual && App.permissao.manual());
+  const podeEditar = () => !App.permissao || !App.permissao.podeEditar || App.permissao.podeEditar();
+  const modoPasta = () => (ehConsultaManual() ? 'read' : 'readwrite');
+  const motivosConsulta = { leitura: null, versao: null };
+  function definirMotivo(tipo, texto) {
+    if (motivosConsulta[tipo] === texto) return;
+    motivosConsulta[tipo] = texto;
+    const motivo = motivosConsulta.versao || motivosConsulta.leitura;
+    if (App.permissao && App.permissao.definirDetectado) App.permissao.definirDetectado(!!motivo, motivo);
+  }
+  const erroDeSomenteLeitura = e => e && (e.name === 'NoModificationAllowedError' || e.name === 'InvalidModificationError');
+  const MSG_LEITURA = 'A pasta de dados não aceita gravação neste computador (permissão só de leitura no SharePoint).';
+
+  let escritaTestada = false;
+  async function testarEscritaUmaVez() {
+    if (escritaTestada || ehConsultaManual() || !remoto.testarEscrita) return;
+    escritaTestada = true;
+    try {
+      const ok = await remoto.testarEscrita();
+      if (ok === false) definirMotivo('leitura', MSG_LEITURA);
+      else if (ok === true) definirMotivo('leitura', null);
+    } catch (e) { console.error(e); escritaTestada = false; }
+  }
+
+  function verificarVersao() {
+    const v = App.sync.situacaoVersao ? App.sync.situacaoVersao() : null;
+    definirMotivo('versao', v && v.desatualizado
+      ? `Este computador está com uma versão antiga do aplicativo (${v.atual}); a versão ${v.maxima} já está em uso. Feche e abra o aplicativo pela pasta "app" do SharePoint para atualizar.`
+      : null);
+  }
+
+  // ---------- Planilha de consulta ----------
+  // Gerada na pasta pelo computador que acabou de gravar o estoque.json (evita vários PCs regravando a mesma
+  // planilha, o que geraria cópias de conflito no OneDrive). No máximo uma vez a cada 2 minutos.
+  const INTERVALO_PLANILHA_MS = 2 * 60000;
+  let planilhaTimer = null, planilhaUltimaTentativa = 0;
+  function agendarPlanilha() {
+    if (planilhaTimer) return;
+    const espera = Math.max(0, planilhaUltimaTentativa + INTERVALO_PLANILHA_MS - Date.now());
+    planilhaTimer = setTimeout(() => { planilhaTimer = null; atualizarPlanilhaConsulta().catch(e => console.error(e)); }, espera);
+  }
+
+  async function atualizarPlanilhaConsulta() {
+    const p = estado.planilhaConsulta;
+    if (estado.conexao !== 'conectado' || !remoto.gravarArquivoDerivado || !podeEditar()) return false;
+    const db = motor.db;
+    if (!db || !App.exporter || !App.exporter.planilhaConsultaBinaria) return false;
+    planilhaUltimaTentativa = Date.now();
+    try {
+      const autor = App.sessao && App.sessao.autor ? App.sessao.autor() : null;
+      const bin = App.exporter.planilhaConsultaBinaria(db, { autor: autor && autor.nome, versao: App.sync.VERSAO_APP });
+      await remoto.gravarArquivoDerivado(p.nome, new Blob([bin], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      p.ultima = new Date().toISOString(); p.erro = null;
+      try { await idbSet('planilhaConsulta', p.ultima); } catch (e) { /* opcional */ }
+      notificar();
+      return true;
+    } catch (e) {
+      console.error(e);
+      p.erro = erroDeSomenteLeitura(e) || (e && e.name === 'NotAllowedError')
+        ? 'A planilha está aberta no Excel neste computador ou a pasta não aceita gravação; ela será atualizada na próxima alteração.'
+        : 'Não foi possível atualizar a planilha: ' + (e.message || e.name);
+      notificar();
+      return false;
+    }
+  }
+
   function erroDePermissao(e) { return e && (e.name === 'NotAllowedError' || e.name === 'SecurityError'); }
 
   // Sincroniza conforme a conexão. Erros ficam em estado.erro (a fila continua guardada).
@@ -223,11 +293,16 @@
     try {
       const r = await motor.sincronizar();
       estado.erro = null;
+      verificarVersao();
       await verificarCopias();
+      await testarEscritaUmaVez();
+      if (r && r.gravou) agendarPlanilha();
       return r;
     } catch (e) {
       console.error(e);
-      if (erroDePermissao(e)) { estado.conexao = 'reconectar'; estado.erro = null; }
+      verificarVersao();
+      if (erroDeSomenteLeitura(e)) { definirMotivo('leitura', MSG_LEITURA); estado.erro = null; }
+      else if (erroDePermissao(e)) { estado.conexao = 'reconectar'; estado.erro = null; }
       else estado.erro = 'Falha ao sincronizar: ' + (e.message || e.name);
       return null;
     } finally { notificar(); }
@@ -288,11 +363,12 @@
     }
     try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (e) { /* opcional */ }
     await carregarEstadoLocal();
+    try { estado.planilhaConsulta.ultima = (await idbGet('planilhaConsulta')) || null; } catch (e) { /* opcional */ }
     if (!suportaPasta()) { estado.conexao = 'indisponivel'; return sincronizar(); }
     const pasta = await idbGet('pasta');
     if (!pasta) { estado.conexao = 'sem-pasta'; return sincronizar(); }
     estado.pasta = pasta;
-    const perm = await pasta.queryPermission({ mode: 'readwrite' });
+    const perm = await pasta.queryPermission({ mode: modoPasta() });
     if (perm !== 'granted') { estado.conexao = 'reconectar'; notificar(); return null; }
     estado.conexao = 'conectado';
     notificar();
@@ -300,7 +376,7 @@
   }
 
   async function escolherPasta() {
-    const pasta = await window.showDirectoryPicker({ id: 'estoque-infra', mode: 'readwrite' });
+    const pasta = await window.showDirectoryPicker({ id: 'estoque-infra', mode: modoPasta() });
     const mesma = estado.pasta && await estado.pasta.isSameEntry(pasta).catch(() => false);
     estado.pasta = pasta;
     estado.conexao = 'conectado';
@@ -314,7 +390,7 @@
 
   async function reconectar() {
     if (!estado.pasta) return escolherPasta();
-    const perm = await estado.pasta.requestPermission({ mode: 'readwrite' });
+    const perm = await estado.pasta.requestPermission({ mode: modoPasta() });
     if (perm !== 'granted') throw new Error('Permissão negada para a pasta de dados.');
     estado.conexao = 'conectado';
     estado.erro = null;
@@ -367,7 +443,7 @@
     estado, iniciar, executar, sincronizar, escolherPasta, reconectar, resolverConflito,
     prepararSubstituicao, substituirBanco, validarBanco, descartarConflito, tentarConflitoDeNovo,
     recomecarDoArquivo, dispensarAlerta, travarAba, garantirAbaUnica, ligarSincronizacaoPeriodica,
-    gravarBackup, nomePasta, suportaPasta, onStatus: f => { ouvintes.add(f); return () => ouvintes.delete(f); },
+    gravarBackup, nomePasta, suportaPasta, atualizarPlanilhaConsulta, modoPasta, onStatus: f => { ouvintes.add(f); return () => ouvintes.delete(f); },
     sync: motor,
     remoto,
     get db() { return motor.db; },
