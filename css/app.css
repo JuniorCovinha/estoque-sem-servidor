@@ -298,3 +298,13 @@ dialog.dlg::backdrop { background: rgba(15, 20, 30, .45); }
 .pend-detalhe .variantes { margin: 3px 0 0; }
 .dlg-corpo h3.sub { font-size: 14px; margin: 14px 0 6px; }
 .dlg-corpo .nota { font-size: 12.5px; margin: 6px 0 0; }
+
+/* ---------- Modo consulta ---------- */
+.faixa-consulta { margin: 10px 20px 0; padding: 7px 12px; font-size: 13px; border: 1px solid var(--border); border-left: 4px solid var(--info); }
+.faixa-consulta strong { font-weight: 600; }
+.uso-computador .check { display: flex; align-items: center; gap: 8px; font-weight: 500; cursor: pointer; margin: 6px 0 2px; }
+.uso-computador .check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.uso-computador .check input:disabled { cursor: not-allowed; }
+@media (max-width: 760px) {
+  .faixa-consulta { margin: 8px 12px 0; }
+}

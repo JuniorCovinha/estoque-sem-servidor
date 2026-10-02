@@ -18,12 +18,15 @@
   let migracao = null; // { grupos } enquanto o relatório de nomes antigos está em revisão
 
   const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
+  // Modo consulta: sem cadastrar, editar, desativar nem vincular nomes. "Ver itens" e a exportação continuam.
+  const pode = () => App.permissao.podeEditar();
 
   // ---------- Lista ----------
   function montar(el) {
     raiz = el;
     clear(raiz);
     corpo = null;
+    if (migracao && !pode()) migracao = null; // o modo consulta pode ter começado com a revisão aberta
     if (migracao) return desenharMigracao();
     inputBusca = h('input', {
       type: 'search', placeholder: 'Buscar por nome, departamento ou e-mail…  ( / )', 'aria-label': 'Buscar pessoas', value: st.busca,
@@ -41,8 +44,9 @@
         UI.select(opUnidades, st.unidade, v => { st.unidade = v; st.salvar(); atualizar(); }, 'Unidade'),
         UI.select(opSituacoes, st.situacao, v => { st.situacao = v; st.salvar(); atualizar(); }, 'Situação'),
         h('div', { class: 'espaco' }),
-        h('button', { class: 'btn', type: 'button', onclick: abrirMigracao }, 'Vincular nomes antigos…'),
-        h('button', { class: 'btn primario', type: 'button', onclick: () => abrirNova() }, '+ Nova pessoa')),
+        pode() ? [
+          h('button', { class: 'btn', type: 'button', onclick: abrirMigracao }, 'Vincular nomes antigos…'),
+          h('button', { class: 'btn primario', type: 'button', onclick: () => abrirNova() }, '+ Nova pessoa')] : null),
       avisosEl, resumoEl,
       h('div', { class: 'tabela-wrap' }, h('table', { class: 'tab' }, thead, corpo)));
     atualizar();
@@ -61,6 +65,7 @@
   function atualizar() {
     const d = db();
     if (!d || !raiz) return;
+    if (migracao && !pode()) { migracao = null; return montar(raiz); }
     if (migracao) return desenharMigracao();
     if (!corpo) return montar(raiz);
 
@@ -85,7 +90,7 @@
       inativasComItens.length ? h('div', { class: 'aviso danger' },
         `${plural(inativasComItens.length, 'pessoa inativa ainda tem', 'pessoas inativas ainda têm')} itens: ${inativasComItens.slice(0, 5).map(p => p.nome).join(', ')}${inativasComItens.length > 5 ? '…' : ''}. `,
         st.situacao !== 'inativas' ? h('button', { type: 'button', class: 'btn pequeno', onclick: () => { st.situacao = 'inativas'; st.salvar(); montar(raiz); } }, 'Mostrar inativas') : null) : null,
-      antigos.length ? h('div', { class: 'aviso info' },
+      antigos.length && pode() ? h('div', { class: 'aviso info' },
         `${plural(antigos.length, 'nome antigo', 'nomes antigos')} (texto livre das entregas) ainda sem vínculo com o cadastro. `,
         h('button', { type: 'button', class: 'btn pequeno', onclick: abrirMigracao }, 'Vincular nomes antigos…')) : null);
 
@@ -98,7 +103,7 @@
     clear(corpo);
     if (!lista.length) {
       corpo.appendChild(h('tr', null, h('td', { colspan: COLS.length, class: 'vazio' },
-        todas.length ? 'Nenhum cadastro encontrado com esses filtros.' : 'Nenhuma pessoa cadastrada ainda. Use "+ Nova pessoa" ou "Vincular nomes antigos…" para aproveitar os nomes das entregas já registradas.')));
+        todas.length ? 'Nenhum cadastro encontrado com esses filtros.' : (pode() ? 'Nenhuma pessoa cadastrada ainda. Use "+ Nova pessoa" ou "Vincular nomes antigos…" para aproveitar os nomes das entregas já registradas.' : 'Nenhuma pessoa cadastrada ainda.'))));
       return;
     }
     const frag = document.createDocumentFragment();
@@ -107,12 +112,12 @@
   }
 
   function linha(p, n) {
-    const acoes = [
+    const acoes = pode() ? [
       { rotulo: 'Editar', fn: () => abrirEditar(p.id) },
       { rotulo: 'Ver itens', fn: () => abrirItens(p.id) },
       '-',
       p.ativo ? { rotulo: 'Desativar…', fn: () => desativar(p.id), perigo: true } : { rotulo: 'Reativar', fn: () => reativar(p.id) },
-    ];
+    ] : [{ rotulo: 'Ver itens', fn: () => abrirItens(p.id) }];
     return h('tr', { class: !p.ativo ? (n ? 'pessoa-alerta' : 'pessoa-inativa') : null },
       h('td', { class: 'pessoa-nome' }, p.nome,
         !p.ativo ? h('span', { class: 'badge ' + (n ? 'danger' : 'neutro') }, n ? 'Inativa com itens' : 'Inativa') : null,
@@ -255,6 +260,7 @@
   const sugestao = g => g.existenteId ? 'vincular' : (g.tipoSugerido === 'SETOR' ? 'setor' : 'criar');
 
   function abrirMigracao() {
+    if (!pode()) return UI.toast('Modo consulta: este computador não pode vincular nomes.', 'erro');
     const grupos = L.gruposNomesAntigos(db());
     if (!grupos.length) return UI.toast('Não há nomes antigos sem vínculo com o cadastro.');
     migracao = { grupos: grupos.map(g => Object.assign({}, g, { acao: '', pessoaId: g.existenteId || '', nomeFinal: g.nome, deptoFinal: g.departamento || '' })) };

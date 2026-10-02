@@ -23,8 +23,9 @@
       UI.select([{ valor: '', rotulo: 'Planilha e aplicação' }, { valor: 'app', rotulo: 'Só aplicação' }, { valor: 'planilha', rotulo: 'Só importados da planilha' }], st.origem, v => { st.origem = v; st.salvar(); atualizar(); }, 'Origem'),
       h('span', { class: 'fraco' }, 'de'), data('de', 'Data inicial'), h('span', { class: 'fraco' }, 'até'), data('ate', 'Data final'),
       h('div', { class: 'espaco' }),
-      h('button', { class: 'btn', type: 'button', onclick: () => App.acoes.abrirDevolucao() }, 'Devolução'),
-      h('button', { class: 'btn primario', type: 'button', onclick: () => App.acoes.abrirEntrega() }, 'Nova entrega')));
+      App.permissao.podeEditar() ? [
+        h('button', { class: 'btn', type: 'button', onclick: () => App.acoes.abrirDevolucao() }, 'Devolução'),
+        h('button', { class: 'btn primario', type: 'button', onclick: () => App.acoes.abrirEntrega() }, 'Nova entrega')] : null));
     resumoEl = h('div', { class: 'resumo' });
     corpo = h('tbody');
     raiz.append(resumoEl, h('div', { class: 'tabela-wrap' }, h('table', { class: 'tab' },

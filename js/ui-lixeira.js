@@ -8,6 +8,7 @@
   const st = UI.prefs('lixeira', { tipo: '' });
   st.busca = '';
   let raiz, corpo, cartoes;
+  const pode = () => App.permissao.podeEditar(); // modo consulta: só consultar e ver o histórico
 
   function montar(el) {
     raiz = el; clear(raiz);
@@ -22,8 +23,8 @@
         h('div', { class: 'busca' }, input),
         UI.select([{ valor: '', rotulo: 'Itens e toners' }, { valor: 'item', rotulo: 'Só itens' }, { valor: 'toner', rotulo: 'Só toners' }], st.tipo, v => { st.tipo = v; st.salvar(); atualizar(); }, 'Tipo'),
         h('div', { class: 'espaco' }),
-        montar.esvaziar = h('button', { type: 'button', class: 'btn perigo', onclick: () => esvaziar() }, 'Esvaziar lixeira')),
-      h('p', { class: 'resumo' }, 'Itens excluídos saem das listas e dos totais, mas continuam guardados aqui com todo o histórico. Restaurar devolve o item exatamente como estava.'),
+        (montar.esvaziar = pode() ? h('button', { type: 'button', class: 'btn perigo', onclick: () => esvaziar() }, 'Esvaziar lixeira') : null)),
+      h('p', { class: 'resumo' }, 'Itens excluídos saem das listas e dos totais, mas continuam guardados aqui com todo o histórico.' + (pode() ? ' Restaurar devolve o item exatamente como estava.' : '')),
       h('div', { class: 'tabela-wrap' }, h('table', { class: 'tab' },
         h('thead', null, h('tr', null, ['Tipo', 'Categoria / modelo', 'Descrição', 'Nº de série', 'Situação ao excluir', 'Excluído em', ''].map(t => h('th', null, t)))),
         corpo)));
@@ -70,9 +71,9 @@
         h('td', null, r.situacao || '—'),
         h('td', { class: 'fraco' }, fmtDataHora(r.em)),
         h('td', { class: 'acoes' },
-          h('button', { type: 'button', class: 'btn pequeno', onclick: () => App.acoes.confirmarRestauracao(r.tipo, r.id) }, 'Restaurar'),
+          pode() ? h('button', { type: 'button', class: 'btn pequeno', onclick: () => App.acoes.confirmarRestauracao(r.tipo, r.id) }, 'Restaurar') : null,
           r.tipo === 'item' ? h('button', { type: 'button', class: 'btn pequeno fantasma', onclick: () => App.acoes.abrirHistorico(r.id) }, 'Histórico') : null,
-          h('button', { type: 'button', class: 'btn pequeno perigo', onclick: () => excluirDefinitivo(r) }, 'Excluir definitivamente'))));
+          pode() ? h('button', { type: 'button', class: 'btn pequeno perigo', onclick: () => excluirDefinitivo(r) }, 'Excluir definitivamente') : null)));
     }
     corpo.appendChild(frag);
   }

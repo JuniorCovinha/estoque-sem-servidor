@@ -43,6 +43,9 @@
 
   let raiz, corpo, resumoEl, selCategoria, selPosicao, inputBusca, sel, visiveis = [];
 
+  // Modo consulta (App.permissao): sem botões de alteração, sem seleção em lote, sem edição por duplo clique.
+  const pode = () => App.permissao.podeEditar();
+
   function montar(el) {
     raiz = el;
     clear(raiz);
@@ -54,7 +57,7 @@
       'aria-label': 'Buscar itens',
       oninput: debounce(() => { st.busca = inputBusca.value; atualizar(); }, 80),
       onkeydown: e => {
-        if (e.key === 'Enter' && visiveis.length === 1) {
+        if (e.key === 'Enter' && visiveis.length === 1 && pode()) {
           // Leitura de série + Enter abre a ação principal do item encontrado.
           e.preventDefault();
           const p = App.acoes.acoesDoItem(visiveis[0]).find(a => a.primaria);
@@ -73,9 +76,10 @@
       UI.select([{ valor: '', rotulo: 'Todos os locais' }].concat(Object.entries(L.LOCAIS).map(([valor, rotulo]) => ({ valor, rotulo }))), st.local, v => { st.local = v; st.salvar(); atualizar(); }, 'Local'),
       selPosicao,
       h('div', { class: 'espaco' }),
-      h('button', { class: 'btn', type: 'button', onclick: () => App.acoes.abrirNovoItem() }, '+ Novo item'),
-      h('button', { class: 'btn', type: 'button', onclick: () => App.acoes.abrirDevolucao() }, 'Devolução'),
-      h('button', { class: 'btn primario', type: 'button', onclick: () => App.acoes.abrirEntrega() }, 'Nova entrega')));
+      pode() ? [
+        h('button', { class: 'btn', type: 'button', onclick: () => App.acoes.abrirNovoItem() }, '+ Novo item'),
+        h('button', { class: 'btn', type: 'button', onclick: () => App.acoes.abrirDevolucao() }, 'Devolução'),
+        h('button', { class: 'btn primario', type: 'button', onclick: () => App.acoes.abrirEntrega() }, 'Nova entrega')] : null));
 
     resumoEl = h('div', { class: 'resumo' });
     raiz.appendChild(resumoEl);
@@ -89,6 +93,13 @@
   }
 
   function montarVazio() {
+    if (!pode()) {
+      return raiz.appendChild(h('div', { class: 'vazio' },
+        h('img', { class: 'grafismo', src: 'img/grafismo-orbital.png', alt: '', width: 2245, height: 1587 }),
+        h('h2', null, 'Nenhum item para consultar ainda'),
+        h('p', null, 'Os dados vêm do arquivo estoque.json da pasta de dados. Escolha ou reconecte a pasta em Dados e backup; se ela já estiver conectada, aguarde a sincronização.'),
+        h('div', { class: 'acoes-vazio' }, h('a', { class: 'btn primario', href: '#dados' }, 'Ir para Dados e backup'))));
+    }
     raiz.appendChild(h('div', { class: 'vazio' },
       h('img', { class: 'grafismo', src: 'img/grafismo-orbital.png', alt: '', width: 2245, height: 1587 }),
       h('h2', null, 'Nenhum item cadastrado ainda'),
@@ -127,7 +138,8 @@
     const cab = UI.cabecalhoOrdenavel(COLS, st, chaveCol => {
       st.dir = st.ord === chaveCol ? -st.dir : 1; st.ord = chaveCol; st.salvar(); atualizar();
     });
-    cab.prepend(sel.th());
+    const thSel = sel.th(); // null em modo consulta
+    if (thSel) cab.prepend(thSel);
     clear(montar.thead).appendChild(cab);
     sel.exibidos(visiveis.map(i => i.id), new Set(L.itensAtivos(db).map(i => i.id)));
 
@@ -137,11 +149,11 @@
       h('span', null, h('strong', null, visiveis.length), ` ${visiveis.length === 1 ? 'item' : 'itens'} exibidos`),
       h('span', null, h('strong', null, unidades), ' unidades em estoque'),
       manut ? h('span', null, h('strong', null, manut), ' em manutenção') : '',
-      h('span', null, 'Dê dois cliques numa célula de texto para editar. Marque várias linhas para editar em lote (Shift+clique marca um intervalo).'));
+      pode() ? h('span', null, 'Dê dois cliques numa célula de texto para editar. Marque várias linhas para editar em lote (Shift+clique marca um intervalo).') : '');
 
     clear(corpo);
     if (!visiveis.length) {
-      corpo.appendChild(h('tr', null, h('td', { colspan: COLS.length + 1, class: 'vazio' }, 'Nenhum item encontrado com esses filtros.')));
+      corpo.appendChild(h('tr', null, h('td', { colspan: COLS.length + (pode() ? 1 : 0), class: 'vazio' }, 'Nenhum item encontrado com esses filtros.')));
       sel.refletir();
       return;
     }
@@ -156,7 +168,7 @@
     const acoes = App.acoes.acoesDoItem(it);
     const primaria = acoes.find(a => a.primaria);
     const celTxt = (campo, extraClasse) => {
-      const editavel = EDITAVEIS.includes(campo) && !(campo === 'serie' || campo === 'patrimonio') || ((campo === 'serie' || campo === 'patrimonio') && it.controle === 'unidade');
+      const editavel = pode() && (EDITAVEIS.includes(campo) && !(campo === 'serie' || campo === 'patrimonio') || ((campo === 'serie' || campo === 'patrimonio') && it.controle === 'unidade'));
       return h('td', {
         class: [extraClasse, editavel ? 'editavel' : null].filter(Boolean).join(' ') || null,
         dataset: editavel ? { campo } : null,
@@ -185,12 +197,12 @@
   // ---------- Edição direta ----------
   document.addEventListener('dblclick', e => {
     const td = e.target.closest && e.target.closest('td.editavel');
-    if (!td || !raiz || !raiz.contains(td)) return;
+    if (!td || !raiz || !raiz.contains(td) || !pode()) return;
     editarCelula(td);
   });
 
   function editarCelula(td) {
-    if (td.classList.contains('editando')) return;
+    if (td.classList.contains('editando') || !pode()) return;
     const id = td.closest('tr').dataset.id;
     const campo = td.dataset.campo;
     const item = App.store.db.itens.find(i => i.id === id);
