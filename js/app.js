@@ -11,7 +11,13 @@
 
   // Executa uma operação de negócio sincronizável: nome de uma função do ledger (lista branca em js/sync.js)
   // e argumentos JSON (depois do db). Se a regra lançar erro, nada muda e o erro sobe para quem chamou.
+  // Modo consulta: a recusa é aqui, na camada de ação, e não só nos botões escondidos (a proteção real é a permissão da pasta no SharePoint).
   App.executar = async function (nome, args, msgOk) {
+    if (!App.permissao.podeEditar()) {
+      const e = new Error(`Modo consulta: este computador não pode alterar o estoque. ${App.permissao.motivo() || ''}`.trim());
+      e.negocio = true;
+      throw e;
+    }
     const r = await S.executar(nome, args, App.sessao.autor());
     if (msgOk) UI.toast(msgOk);
     App.render();
@@ -129,6 +135,11 @@
   });
   window.addEventListener('online', () => { S.sincronizar(); });
   S.onStatus(renderStatus);
+  // Entrar ou sair do modo consulta redesenha a tela atual por inteiro (botões, colunas e seleção mudam).
+  App.permissao.aoMudar(() => {
+    if (viewAtual && App.views[viewAtual]) { UI.fecharMenu(); clear(main); App.views[viewAtual].montar(main); }
+    renderStatus();
+  });
 
   // Outra aba/janela já está com a aplicação aberta: esta não mostra dados nem permite alterações.
   function telaOutraAba() {

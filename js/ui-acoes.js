@@ -521,6 +521,8 @@
 
   // ---------- Ações disponíveis por item ----------
   function acoesDoItem(it) {
+    // Modo consulta: só o que lê.
+    if (!App.permissao.podeEditar()) return [{ rotulo: 'Histórico', fn: () => abrirHistorico(it.id) }];
     const a = [];
     if (it.controle === 'quantidade') {
       if (L.total(it) > 0) a.push({ rotulo: 'Entregar', fn: () => abrirEntrega(it.id), primaria: true });
@@ -581,6 +583,7 @@
   }
 
   function acoesDoToner(t) {
+    if (!App.permissao.podeEditar()) return []; // toner não tem ação de leitura (sem histórico próprio)
     return [
       { rotulo: 'Editar', fn: () => abrirEditarToner(t.id) },
       '-',

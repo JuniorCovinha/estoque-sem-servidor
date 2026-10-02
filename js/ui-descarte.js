@@ -8,6 +8,7 @@
   const st = UI.prefs('descarte', { pendentesDados: false });
   st.busca = '';
   let raiz, corpo, cartoes, sel;
+  const pode = () => App.permissao.podeEditar(); // modo consulta: sem registrar, editar nem lote
 
   function montar(el) {
     raiz = el; clear(raiz);
@@ -24,10 +25,10 @@
         h('div', { class: 'busca' }, input),
         h('label', { class: 'check', style: 'display:flex;gap:6px;align-items:center' }, chk, 'Só equipamentos sem confirmação de dados apagados'),
         h('div', { class: 'espaco' }),
-        h('button', { class: 'btn primario', type: 'button', onclick: () => App.acoes.abrirDescarte() }, 'Registrar descarte')),
+        pode() ? h('button', { class: 'btn primario', type: 'button', onclick: () => App.acoes.abrirDescarte() }, 'Registrar descarte') : null),
       sel.barra,
       h('div', { class: 'tabela-wrap' }, h('table', { class: 'tab' },
-        h('thead', null, h('tr', null, sel.th(), ['Data', 'Item', 'Modelo', 'Nº de série', 'Qtd.', 'Ano', 'Justificativa', 'Valor unit.', 'Valor total', 'Dados apagados', 'Certificado', '']
+        h('thead', null, h('tr', null, sel.th(), ['Data', 'Item', 'Modelo', 'Nº de série', 'Qtd.', 'Ano', 'Justificativa', 'Valor unit.', 'Valor total', 'Dados apagados', 'Certificado'].concat(pode() ? [''] : [])
           .map(t => h('th', { class: ['Qtd.', 'Valor unit.', 'Valor total', 'Ano'].includes(t) ? 'num' : null }, t)))),
         corpo)));
     atualizar();
@@ -56,7 +57,7 @@
 
     sel.exibidos(lista.map(m => m.id), new Set(todos.map(m => m.id)));
     clear(corpo);
-    if (!lista.length) { corpo.appendChild(h('tr', null, h('td', { colspan: 13, class: 'vazio' }, 'Nenhum descarte encontrado.'))); sel.refletir(); return; }
+    if (!lista.length) { corpo.appendChild(h('tr', null, h('td', { colspan: pode() ? 13 : 11, class: 'vazio' }, 'Nenhum descarte encontrado.'))); sel.refletir(); return; }
     const frag = document.createDocumentFragment();
     for (const m of lista) {
       const d = m.descarte || {};
@@ -74,7 +75,7 @@
         h('td', { class: 'num' }, d.valorUnit === null || d.valorUnit === undefined ? '—' : fmtMoeda(valorDe(m))),
         h('td', null, h('span', { class: 'badge ' + (d.dadosApagados === 'SIM' ? 'ok' : alerta ? 'warn' : 'neutro'), title: d.metodo || null }, L.DADOS_APAGADOS[d.dadosApagados] || '—')),
         h('td', { class: 'curto', title: d.certificado || null }, d.certificado || '—'),
-        h('td', { class: 'acoes' }, h('button', { type: 'button', class: 'btn pequeno', onclick: () => App.acoes.abrirEditarDescarte(m.id) }, 'Editar'))));
+        pode() ? h('td', { class: 'acoes' }, h('button', { type: 'button', class: 'btn pequeno', onclick: () => App.acoes.abrirEditarDescarte(m.id) }, 'Editar')) : null));
     }
     corpo.appendChild(frag);
     sel.refletir();

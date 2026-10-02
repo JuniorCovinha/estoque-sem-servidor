@@ -8,6 +8,7 @@
   const st = UI.prefs('toner', { status: '' });
   st.busca = '';
   let raiz, corpo, cartoes;
+  const pode = () => App.permissao.podeEditar(); // modo consulta: status vira texto, sem adicionar nem editar
 
   function montar(el) {
     raiz = el; clear(raiz);
@@ -22,9 +23,9 @@
         h('div', { class: 'busca' }, input),
         UI.select([{ valor: '', rotulo: 'Todos os status' }].concat(Object.entries(L.STATUS_TONER).map(([valor, rotulo]) => ({ valor, rotulo }))), st.status, v => { st.status = v; st.salvar(); atualizar(); }, 'Status'),
         h('div', { class: 'espaco' }),
-        h('button', { class: 'btn primario', type: 'button', onclick: () => App.acoes.abrirNovoToner() }, '+ Adicionar toner')),
+        pode() ? h('button', { class: 'btn primario', type: 'button', onclick: () => App.acoes.abrirNovoToner() }, '+ Adicionar toner') : null),
       h('div', { class: 'tabela-wrap' }, h('table', { class: 'tab' },
-        h('thead', null, h('tr', null, ['Modelo', 'Cor', 'Impressora', 'Status', ''].map(t => h('th', null, t)))),
+        h('thead', null, h('tr', null, ['Modelo', 'Cor', 'Impressora', 'Status'].concat(pode() ? [''] : []).map(t => h('th', null, t)))),
         corpo)));
     atualizar();
   }
@@ -52,21 +53,22 @@
       .sort((a, b) => ordem[a.status] - ordem[b.status] || UI.comparar(a.modelo, b.modelo));
 
     clear(corpo);
-    if (!lista.length) { corpo.appendChild(h('tr', null, h('td', { colspan: 5, class: 'vazio' }, 'Nenhum toner encontrado.'))); return; }
+    if (!lista.length) { corpo.appendChild(h('tr', null, h('td', { colspan: pode() ? 5 : 4, class: 'vazio' }, 'Nenhum toner encontrado.'))); return; }
     const frag = document.createDocumentFragment();
     for (const t of lista) {
-      const sel = UI.select(Object.entries(L.STATUS_TONER).map(([valor, rotulo]) => ({ valor, rotulo })), t.status, async v => {
+      const editavel = pode();
+      const sel = editavel ? UI.select(Object.entries(L.STATUS_TONER).map(([valor, rotulo]) => ({ valor, rotulo })), t.status, async v => {
         try { await App.executar('mudarStatusToner', [t.id, v], `Toner ${t.modelo}: ${L.STATUS_TONER[v]}.`); }
         catch (e) { UI.toast(e.message, 'erro'); atualizar(); }
-      }, 'Status do toner ' + t.modelo);
+      }, 'Status do toner ' + t.modelo) : L.STATUS_TONER[t.status] || t.status;
       frag.appendChild(h('tr', null,
         h('td', { class: 'mono' }, t.modelo),
         h('td', null, bolinhaCor(t.cor), t.cor || '—'),
         h('td', null, t.impressora || '—'),
         h('td', null, sel),
-        h('td', { class: 'acoes' },
+        editavel ? h('td', { class: 'acoes' },
           h('button', { type: 'button', class: 'btn pequeno', onclick: () => App.acoes.abrirEditarToner(t.id) }, 'Editar'),
-          h('button', { type: 'button', class: 'btn pequeno fantasma icone', 'aria-label': 'Mais ações', title: 'Mais ações', onclick: e => UI.menu(e.currentTarget, App.acoes.acoesDoToner(t).filter(a => a !== '-' && a.rotulo !== 'Editar')) }, '⋯'))));
+          h('button', { type: 'button', class: 'btn pequeno fantasma icone', 'aria-label': 'Mais ações', title: 'Mais ações', onclick: e => UI.menu(e.currentTarget, App.acoes.acoesDoToner(t).filter(a => a !== '-' && a.rotulo !== 'Editar')) }, '⋯')) : null));
     }
     corpo.appendChild(frag);
   }

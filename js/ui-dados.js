@@ -17,9 +17,54 @@
   function atualizar() {
     if (!raiz) return;
     clear(raiz);
+    if (importacao && !pode()) importacao = null; // o modo consulta pode ter começado com um relatório de importação aberto
     if (importacao) return raiz.appendChild(relatorio());
     const db = S.db;
-    raiz.append(secaoPasta(), secaoSincronizacao(), secaoOperador(), secaoImportar(db), secaoExportar(db), secaoVerificar(db), secaoSobre(db));
+    // Modo consulta: sem importar planilha nem atualizar cores (as exportações, a verificação e a pasta continuam).
+    // appendChildren ignora null (Element.append escreveria "null" como texto).
+    App.util.appendChildren(raiz, [secaoPasta(), secaoUso(), secaoPlanilhaConsulta(), secaoSincronizacao(), secaoOperador(),
+      pode() ? secaoImportar(db) : null, secaoExportar(db), secaoVerificar(db), secaoSobre(db)]);
+  }
+
+  // Modo consulta (App.permissao): sem importar, restaurar, atualizar cores nem tratar conflitos.
+  const pode = () => App.permissao.podeEditar();
+
+  // ---------- Uso deste computador ----------
+  function secaoUso() {
+    const P = App.permissao;
+    const soDetectado = P.detectado() && !P.manual();
+    const chk = h('input', { type: 'checkbox', id: 'chk-so-consulta', checked: P.manual() || soDetectado, disabled: soDetectado,
+      onchange: () => P.definirManual(chk.checked) });
+    return h('section', { class: 'secao uso-computador' },
+      h('h2', null, 'Uso deste computador'),
+      h('label', { class: 'check', for: 'chk-so-consulta' }, chk, 'Este computador é só para consulta (não altera o estoque)'),
+      h('p', null, 'Quem não tem permissão de edição no SharePoint fica em consulta automaticamente.'),
+      P.detectado() ? h('div', { class: 'aviso info' }, 'Consulta automática: ' + (P.motivoDetectado() || 'sem permissão para gravar na pasta de dados.') +
+        (soDetectado ? ' Isto não pode ser desmarcado aqui: depende da permissão da pasta no SharePoint.' : '')) : null);
+  }
+
+  // ---------- Planilha de consulta (somente exibição; quem gera é o store) ----------
+  function secaoPlanilhaConsulta() {
+    const pc = S.estado.planilhaConsulta;
+    if (!pc) return null;
+    const { pad } = App.util;
+    const quando = pc.ultima && !isNaN(new Date(pc.ultima))
+      ? (d => `Atualizada em ${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`)(new Date(pc.ultima))
+      : null;
+    const podeAtualizar = pode() && typeof S.atualizarPlanilhaConsulta === 'function';
+    return h('section', { class: 'secao' },
+      h('h2', null, 'Planilha de consulta'),
+      h('p', null, 'Planilha com o estoque atual, gerada na pasta de dados para consulta direta no Excel (somente leitura).'),
+      h('ul', { class: 'lista-simples' },
+        h('li', null, 'Arquivo: ', h('span', { class: 'mono' }, pc.nome || 'estoque-consulta.xlsx')),
+        h('li', null, quando || 'Ainda não gerada')),
+      pc.erro ? h('div', { class: 'aviso danger' }, 'Não foi possível atualizar a planilha de consulta: ' + pc.erro) : null,
+      podeAtualizar ? h('div', { class: 'linha-botoes' }, h('button', { class: 'btn', type: 'button', onclick: atualizarPlanilhaConsulta }, 'Atualizar agora')) : null);
+  }
+
+  async function atualizarPlanilhaConsulta() {
+    try { await S.atualizarPlanilhaConsulta(); UI.toast('Planilha de consulta atualizada.'); } catch (e) { UI.toast(e.message || String(e), 'erro'); }
+    App.render();
   }
 
   // ---------- Pasta de dados ----------
@@ -69,7 +114,9 @@
       copias.length ? h('div', { class: 'aviso warn' },
         `Há outros arquivos de dados na pasta: ${copias.join(', ')}. Normalmente são cópias de conflito criadas pelo OneDrive quando dois computadores gravaram ao mesmo tempo. ` +
         'Eles NÃO são mesclados automaticamente: abra-os para conferir se há lançamentos que faltam no estoque.json, lance o que faltar e depois mova as cópias para a pasta backup/.') : null,
-      h('p', null, 'Cada alteração é registrada como uma operação e enviada para o arquivo da pasta. Se outra pessoa alterou o arquivo antes, suas operações são reaplicadas sobre a versão dela; as que não fizerem mais sentido (ex.: item já entregue por outra pessoa) aparecem abaixo para revisão.'),
+      h('p', null, pode()
+        ? 'Cada alteração é registrada como uma operação e enviada para o arquivo da pasta. Se outra pessoa alterou o arquivo antes, suas operações são reaplicadas sobre a versão dela; as que não fizerem mais sentido (ex.: item já entregue por outra pessoa) aparecem abaixo para revisão.'
+        : 'Em modo consulta a aplicação só lê: traz as alterações feitas pelos outros computadores e não altera o estoque.'),
       h('ul', { class: 'lista-simples' }, linhas.map(l => h('li', null, l))),
       h('div', { class: 'linha-botoes' },
         h('button', { class: 'btn primario', type: 'button', disabled: !conectado || sy.estado.sincronizando, onclick: sincronizarAgora }, 'Sincronizar agora')),
@@ -132,9 +179,9 @@
       h('div', { class: 'pend-titulo' }, App.sync.rotuloOperacao(op.nome), alvo ? ': ' + alvo : ''),
       h('div', { class: 'pend-detalhe' }, 'Por que falhou: ', c.erro),
       h('div', { class: 'pend-detalhe fraco' }, `Feita por ${autor} em ${fmtDataHora(op.criadoEm)} · conflito detectado em ${fmtDataHora(c.em)}`),
-      h('div', { class: 'linha-botoes' },
+      pode() ? h('div', { class: 'linha-botoes' },
         h('button', { class: 'btn', type: 'button', onclick: () => tentarDeNovo(c) }, 'Tentar de novo'),
-        h('button', { class: 'btn perigo', type: 'button', onclick: () => descartarConflito(c, alvo) }, 'Descartar')));
+        h('button', { class: 'btn perigo', type: 'button', onclick: () => descartarConflito(c, alvo) }, 'Descartar')) : null);
   }
 
   async function tentarDeNovo(c) {
@@ -351,16 +398,16 @@
     const inputJSON = h('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: () => restaurar(inputJSON.files[0]) });
     return h('section', { class: 'secao' },
       h('h2', null, 'Exportar e backup'),
-      h('p', null, 'A planilha de backup tem as abas Estoque, Movimentações, Descarte e Toner, com uma linha de cabeçalho e filtros — pronta para abrir no Excel. O backup .json guarda tudo e pode ser restaurado aqui.'),
+      h('p', null, 'A planilha de backup tem as abas Estoque, Movimentações, Descarte e Toner, com uma linha de cabeçalho e filtros — pronta para abrir no Excel. O backup .json guarda tudo' + (pode() ? ' e pode ser restaurado aqui.' : '.')),
       h('div', { class: 'linha-botoes' },
         h('button', { class: 'btn primario', type: 'button', disabled: vazio, onclick: () => App.exporter.baixarPlanilha(S.db) }, 'Baixar planilha (.xlsx)'),
         h('button', { class: 'btn', type: 'button', disabled: vazio, onclick: () => App.exporter.baixarCSVEstoque(S.db) }, 'Baixar estoque (.csv)'),
         h('button', { class: 'btn', type: 'button', disabled: vazio, onclick: () => App.exporter.baixarJSON(S.db) }, 'Baixar backup completo (.json)'),
-        S.estado.conexao === 'conectado' ? h('button', { class: 'btn', type: 'button', disabled: vazio, onclick: async () => {
+        // Gravar na pasta e restaurar alteram dados compartilhados: somem em modo consulta.
+        pode() && S.estado.conexao === 'conectado' ? h('button', { class: 'btn', type: 'button', disabled: vazio, onclick: async () => {
           try { await S.gravarBackup('manual', JSON.stringify(S.db), S.db); UI.toast('Backup gravado na pasta backup/.'); } catch (e) { UI.toast(e.message, 'erro'); }
         } }, 'Gravar backup na pasta agora') : null,
-        inputJSON,
-        h('button', { class: 'btn', type: 'button', onclick: () => inputJSON.click() }, 'Restaurar backup (.json)…')),
+        pode() ? [inputJSON, h('button', { class: 'btn', type: 'button', onclick: () => inputJSON.click() }, 'Restaurar backup (.json)…')] : null),
       h('p', { style: 'margin-top:10px;font-size:12.5px' }, 'Os arquivos exportados contêm nomes de colaboradores (dados pessoais). Guarde-os apenas em locais com acesso restrito à equipe de TI; evite e-mail e pen drive.'));
   }
 

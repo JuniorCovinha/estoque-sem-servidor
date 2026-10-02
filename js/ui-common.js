@@ -317,6 +317,8 @@
     const ids = new Set();
     let exibidos = [];
     let ancora = null;
+    // Em modo consulta não há seleção: sem caixas, sem barra, sem edição em lote.
+    const ativa = () => App.permissao.podeEditar();
     const chkTodos = h('input', { type: 'checkbox', 'aria-label': 'Selecionar todos os exibidos', title: 'Selecionar todos os exibidos',
       onclick: () => {
         const todos = exibidos.length && exibidos.every(id => ids.has(id));
@@ -325,9 +327,10 @@
       } });
     const barra = h('div', { class: 'barra-lote', role: 'region', 'aria-label': 'Seleção', hidden: true });
 
-    function th() { return h('th', { class: 'sel' }, chkTodos); }
+    function th() { return ativa() ? h('th', { class: 'sel' }, chkTodos) : null; }
 
     function td(id, nome) {
+      if (!ativa()) return null;
       const chk = h('input', { type: 'checkbox', checked: ids.has(id), dataset: { sel: id }, 'aria-label': 'Selecionar ' + (nome || '') });
       return h('td', {
         class: 'sel',
@@ -352,6 +355,7 @@
     function limpar() { ids.clear(); ancora = null; refletir(); }
 
     function refletir() {
+      if (!ativa()) { ids.clear(); ancora = null; barra.hidden = true; return clear(barra); }
       for (const c of corpo.querySelectorAll('input[data-sel]')) {
         c.checked = ids.has(c.dataset.sel);
         c.closest('tr').classList.toggle('selecionada', c.checked);
@@ -384,6 +388,23 @@
     if (!termos.length) return () => true;
     return campos => { const alvo = chave(campos.filter(Boolean).join(' ')); return termos.every(t => alvo.includes(t)); };
   }
+
+  // ---------- Faixa do modo consulta (abaixo do cabeçalho, em todas as telas) ----------
+  // Um único elemento, fora do <main>: sobrevive à troca de tela e acompanha App.permissao.
+  function faixaConsulta() {
+    const main = document.getElementById('app');
+    if (!main || !main.parentNode) return;
+    const el = h('div', { id: 'faixa-consulta', class: 'aviso info faixa-consulta', role: 'status', hidden: true });
+    main.before(el);
+    const atualizar = () => {
+      const pode = App.permissao.podeEditar();
+      el.hidden = pode;
+      App.util.preencher(el, pode ? null : [h('strong', null, 'Modo consulta'), ' — ' + (App.permissao.motivo() || 'esta tela não altera o estoque.')]);
+    };
+    App.permissao.aoMudar(atualizar);
+    atualizar();
+  }
+  if (typeof document !== 'undefined') faixaConsulta();
 
   App.ui = { toast, confirmar, escolher, formulario, menu, fecharMenu, prefs, select, cabecalhoOrdenavel, comparar, filtroTexto, abrirDialogo, selecao };
 })(globalThis.App = globalThis.App || {});
