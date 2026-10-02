@@ -188,6 +188,9 @@
     return id;
   }
 
+  // Consulta (App.permissao): sem permissão, o store também recusa substituir dados e gravar backups.
+  const podeEditarAgora = () => !App.permissao || !App.permissao.podeEditar || App.permissao.podeEditar();
+
   // ---------- Remoto e motor de sincronização ----------
   const suportaPasta = () => typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 
@@ -201,7 +204,7 @@
   const remoto = criarRemoto();
 
   async function gravarBackup(prefixo, texto, db) {
-    if (estado.conexao !== 'conectado' || !remoto.backup) return false;
+    if (estado.conexao !== 'conectado' || !remoto.backup || !podeEditarAgora()) return false;
     return remoto.backup(prefixo, texto, db);
   }
 
@@ -401,6 +404,7 @@
   // Importação e restauração substituem tudo: exigem a fila vazia. Sincroniza antes SEMPRE (mesmo com a fila
   // vazia), para a tela mostrar os dados atuais do arquivo antes da confirmação.
   async function prepararSubstituicao() {
+    if (!podeEditarAgora()) throw new Error('Modo consulta: este computador não pode substituir os dados. ' + (App.permissao.motivo() || ''));
     const b = motor.estado.bloqueio;
     if (b && b.codigo !== 'estado-invalido') throw new Error(b.mensagem);
     if (!b) await sincronizar();
