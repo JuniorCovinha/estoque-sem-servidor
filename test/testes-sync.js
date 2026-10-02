@@ -456,6 +456,26 @@ teste('vincular nomes antigos como operação é reaplicável e idempotente', as
   assert.strictEqual(remotoDb(rem).db.pessoas.length, 1, 'não duplica ao sincronizar de novo');
 });
 
+teste('esvaziar a Lixeira como operação: reaplicável, converge entre PCs e não apaga item restaurado por outro', async () => {
+  const rem = R.memoria();
+  const A = pc(rem, 'Ana'), B = pc(rem, 'Bruno');
+  const n1 = await A.exec('cadastrarItem', [notebook('LX-A')]);
+  const n2 = await A.exec('cadastrarItem', [notebook('LX-B')]);
+  await A.exec('excluirItem', [n1.id]); await A.exec('excluirItem', [n2.id]);
+  await sync(A, rem); await sync(B, rem);
+  rem.offline = true;
+  await B.exec('restaurarItem', [n2.id]);           // B recupera um deles offline
+  const r = await A.exec('esvaziarLixeira', []);    // A esvazia offline (ainda vê os dois)
+  assert.deepStrictEqual(r, { itens: 2, toners: 0 });
+  rem.offline = false;
+  await sync(B, rem);
+  await sync(A, rem);                               // rebase: no remoto só n1 está na Lixeira
+  await sync(B, rem);
+  assert.ok(!A.db.itens.some(i => i.id === n1.id), 'n1 apagado');
+  assert.ok(A.db.itens.some(i => i.id === n2.id && !i.excluido), 'n2 restaurado por B continua');
+  assert.strictEqual(JSON.stringify(A.db), JSON.stringify(B.db), 'convergem');
+});
+
 function pastaFalsa() {
   const arquivos = new Map(), dirs = new Map();
   const naoAchou = () => { const e = new Error('não encontrado'); e.name = 'NotFoundError'; return e; };

@@ -20,7 +20,9 @@
       cartoes,
       h('div', { class: 'barra' },
         h('div', { class: 'busca' }, input),
-        UI.select([{ valor: '', rotulo: 'Itens e toners' }, { valor: 'item', rotulo: 'Só itens' }, { valor: 'toner', rotulo: 'Só toners' }], st.tipo, v => { st.tipo = v; st.salvar(); atualizar(); }, 'Tipo')),
+        UI.select([{ valor: '', rotulo: 'Itens e toners' }, { valor: 'item', rotulo: 'Só itens' }, { valor: 'toner', rotulo: 'Só toners' }], st.tipo, v => { st.tipo = v; st.salvar(); atualizar(); }, 'Tipo'),
+        h('div', { class: 'espaco' }),
+        montar.esvaziar = h('button', { type: 'button', class: 'btn perigo', onclick: () => esvaziar() }, 'Esvaziar lixeira')),
       h('p', { class: 'resumo' }, 'Itens excluídos saem das listas e dos totais, mas continuam guardados aqui com todo o histórico. Restaurar devolve o item exatamente como estava.'),
       h('div', { class: 'tabela-wrap' }, h('table', { class: 'tab' },
         h('thead', null, h('tr', null, ['Tipo', 'Categoria / modelo', 'Descrição', 'Nº de série', 'Situação ao excluir', 'Excluído em', ''].map(t => h('th', null, t)))),
@@ -44,6 +46,7 @@
     const db = App.store.db;
     if (!corpo || !db) return;
     const todos = registros(db);
+    if (montar.esvaziar) montar.esvaziar.disabled = !todos.length;
     preencher(cartoes,
       h('div', { class: 'cartao' }, h('div', { class: 'rotulo' }, 'Itens na Lixeira'), h('div', { class: 'valor' }, todos.filter(r => r.tipo === 'item').length)),
       h('div', { class: 'cartao' }, h('div', { class: 'rotulo' }, 'Toners na Lixeira'), h('div', { class: 'valor' }, todos.filter(r => r.tipo === 'toner').length)));
@@ -68,9 +71,64 @@
         h('td', { class: 'fraco' }, fmtDataHora(r.em)),
         h('td', { class: 'acoes' },
           h('button', { type: 'button', class: 'btn pequeno', onclick: () => App.acoes.confirmarRestauracao(r.tipo, r.id) }, 'Restaurar'),
-          r.tipo === 'item' ? h('button', { type: 'button', class: 'btn pequeno fantasma', onclick: () => App.acoes.abrirHistorico(r.id) }, 'Histórico') : null)));
+          r.tipo === 'item' ? h('button', { type: 'button', class: 'btn pequeno fantasma', onclick: () => App.acoes.abrirHistorico(r.id) }, 'Histórico') : null,
+          h('button', { type: 'button', class: 'btn pequeno perigo', onclick: () => excluirDefinitivo(r) }, 'Excluir definitivamente'))));
     }
     corpo.appendChild(frag);
+  }
+
+  // Cópia de segurança antes de apagar de vez: na pasta backup/ quando conectada; senão, baixa um .json.
+  async function copiaAntes(prefixo) {
+    const db = App.store.db;
+    let ok = false;
+    try { ok = await App.store.gravarBackup(prefixo, JSON.stringify(db), db); } catch (e) { ok = false; }
+    if (!ok && App.exporter) App.exporter.baixarJSON(db, prefixo);
+  }
+
+  const avisoCopia = () => App.store.estado.conexao === 'conectado'
+    ? 'Uma cópia de tudo é salva em backup/ antes de apagar.'
+    : 'Uma cópia de tudo será baixada (arquivo .json) antes de apagar.';
+
+  async function excluirDefinitivo(r) {
+    const ok = await UI.confirmar({
+      titulo: 'Excluir definitivamente?', perigo: true, ok: 'Excluir definitivamente',
+      mensagem: `${r.rotuloTipo} "${r.nome}${r.descricao ? ' — ' + r.descricao : ''}" será apagado de vez. Isso não pode ser desfeito pela aplicação.`,
+      detalhes: [
+        'As movimentações antigas continuam no histórico, com a descrição de quando aconteceram.',
+        r.serie ? `O nº de série ${r.serie} fica livre para um novo cadastro.` : null,
+        avisoCopia(),
+      ].filter(Boolean),
+    });
+    if (!ok) return;
+    try {
+      await copiaAntes('antes-de-excluir-definitivo');
+      await App.executar('excluirDefinitivo', [{ tipo: r.tipo, id: r.id }], 'Excluído definitivamente.');
+    } catch (e) { UI.toast(e.message, 'erro'); }
+  }
+
+  async function esvaziar() {
+    const todos = registros(App.store.db);
+    if (!todos.length) return UI.toast('A Lixeira já está vazia.');
+    const nItens = todos.filter(r => r.tipo === 'item').length;
+    const nToners = todos.filter(r => r.tipo === 'toner').length;
+    const partes = [
+      nItens ? `${nItens} ${nItens === 1 ? 'item' : 'itens'}` : null,
+      nToners ? `${nToners} ${nToners === 1 ? 'toner' : 'toners'}` : null,
+    ].filter(Boolean).join(' e ');
+    const ok = await UI.confirmar({
+      titulo: 'Esvaziar a Lixeira?', perigo: true, ok: 'Esvaziar lixeira',
+      mensagem: `${partes} serão apagados de vez. Isso não pode ser desfeito pela aplicação.`,
+      detalhes: [
+        'As movimentações antigas continuam no histórico, com a descrição de quando aconteceram.',
+        'Os números de série desses itens ficam livres para novos cadastros.',
+        avisoCopia(),
+      ],
+    });
+    if (!ok) return;
+    try {
+      await copiaAntes('antes-de-esvaziar-lixeira');
+      await App.executar('esvaziarLixeira', [], `Lixeira esvaziada: ${partes}.`);
+    } catch (e) { UI.toast(e.message, 'erro'); }
   }
 
   App.views = App.views || {};

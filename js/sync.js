@@ -51,6 +51,8 @@
     editarToner: 'Edição de toner',
     excluirToner: 'Exclusão de toner',
     restaurarToner: 'Restauração de toner',
+    excluirDefinitivo: 'Exclusão definitiva da Lixeira',
+    esvaziarLixeira: 'Esvaziar Lixeira',
     atualizarCoresToners: 'Cores dos toners pela planilha',
     criarPessoa: 'Cadastro de pessoa',
     editarPessoa: 'Edição de pessoa',

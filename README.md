@@ -54,6 +54,7 @@ Enquanto a pasta estiver desconectada, as alterações ficam guardadas no navega
 | Marcar vários descartes (ex.: "Dados apagados: Não se aplica") | tela **Descarte** → marque as linhas → **Editar em lote** |
 | Excluir item ou toner (vai para a Lixeira) | menu **⋯ → Excluir…** |
 | Consultar ou recuperar excluídos | aba **Lixeira → Restaurar** |
+| Apagar de vez o que está na Lixeira | **Lixeira → Excluir definitivamente** (um) ou **Esvaziar lixeira** (todos). Faz cópia de tudo antes; o histórico continua legível e a série fica livre |
 | Preencher a cor dos toners já importados | **Dados e backup → Atualizar cores dos toners pela planilha…** |
 | Cadastrar colaborador ou setor que recebe itens | aba **Pessoas → + Nova pessoa** (ou **+ Cadastrar nova pessoa** dentro da entrega/devolução) |
 | Aproveitar os nomes já digitados nas entregas antigas | **Pessoas → Vincular nomes antigos…** (você decide, grupo a grupo; nada é criado sozinho) |

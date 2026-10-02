@@ -117,6 +117,31 @@ teste('Lixeira: toner excluído some das contagens e pode ser restaurado', () =>
   assert.ok(wb.SheetNames.includes('Lixeira'));
 });
 
+teste('Lixeira: excluir definitivamente e esvaziar mantêm o histórico legível e liberam a série', () => {
+  const db = L.novoBanco();
+  const nb = L.cadastrarItem(db, { categoria: 'Notebook', descricao: 'Latitude', controle: 'unidade', serie: 'DEF-1', local: 'MATRIZ', data: hoje });
+  L.entregar(db, nb.id, { usuario: 'Fulana', data: hoje });
+  const cabo = L.cadastrarItem(db, { categoria: 'Cabo', descricao: 'HDMI', controle: 'quantidade', quantidade: 2, local: 'MATRIZ', data: hoje });
+  const [t] = L.adicionarToner(db, { modelo: 'W9008-EVP', status: 'NOVO', quantidade: 1 });
+  lanca(() => L.excluirDefinitivo(db, { tipo: 'item', id: nb.id }), /Só itens que estão na Lixeira/);
+  lanca(() => L.esvaziarLixeira(db), /já está vazia/);
+  L.excluirItem(db, nb.id);
+  L.excluirDefinitivo(db, { tipo: 'item', id: nb.id });
+  assert.ok(!db.itens.some(i => i.id === nb.id), 'cadastro removido');
+  const entrega = db.movimentos.find(m => m.tipo === 'ENTREGA' && m.item && m.item.serie === 'DEF-1');
+  assert.ok(entrega && entrega.itemId === null && entrega.usuario === 'Fulana', 'histórico preservado sem vínculo');
+  assert.ok(db.movimentos.some(m => m.tipo === 'EXCLUSAO_DEFINITIVA' && m.item.serie === 'DEF-1'));
+  L.cadastrarItem(db, { categoria: 'Notebook', descricao: 'Novo', controle: 'unidade', serie: 'def-1', local: 'MATRIZ', data: hoje });
+  L.excluirItem(db, cabo.id); L.excluirToner(db, t.id);
+  const r = L.esvaziarLixeira(db);
+  assert.deepStrictEqual(r, { itens: 1, toners: 1 });
+  assert.ok(!db.itens.some(i => i.excluido) && !db.toners.some(x => x.excluido));
+  const def = db.movimentos.filter(m => m.tipo === 'EXCLUSAO_DEFINITIVA');
+  assert.strictEqual(def.length, 3);
+  assert.ok(def[1].lote && def[1].lote === def[2].lote, 'esvaziar registra o mesmo lote');
+  assert.deepStrictEqual(L.verificarConsistencia(db), []);
+});
+
 teste('"Tem série": item por quantidade com 1 unidade passa a ter nº de série', () => {
   const db = L.novoBanco();
   const it = L.cadastrarItem(db, { categoria: 'Celular Samsung', descricao: 'Galaxy A17', controle: 'quantidade', quantidade: 1, local: 'SAO_CRISTOVAO', data: hoje });

@@ -10,6 +10,7 @@
     MANUTENCAO: 'Envio p/ manutenção', RETORNO_MANUTENCAO: 'Retorno da manutenção',
     DESCARTE: 'Descarte', AJUSTE: 'Ajuste', EDICAO: 'Edição', TONER: 'Toner',
     EXCLUSAO: 'Exclusão (lixeira)', RESTAURACAO: 'Restauração da lixeira', PESSOA: 'Cadastro de pessoas',
+    EXCLUSAO_DEFINITIVA: 'Exclusão definitiva',
   };
   const STATUS_TONER = { NOVO: 'Novo', EM_USO: 'Em uso', DESCARTE: 'Descarte' };
   const DADOS_APAGADOS = { NAO_INFORMADO: 'Não informado', SIM: 'Sim', NAO: 'Não', NAO_SE_APLICA: 'Não se aplica' };
@@ -471,6 +472,48 @@
 
   function snapToner(t) { return { categoria: 'Toner', descricao: t.modelo, serie: null }; }
 
+  // ---------- Exclusão definitiva (esvaziar a Lixeira) ----------
+  // O cadastro sai de vez, mas as movimentações antigas ficam: guardam a descrição/série de quando aconteceram
+  // (campo item) e só perdem o vínculo com o cadastro. Assim a auditoria continua legível.
+
+  function removerDefinitivo(db, tipo, id, lote) {
+    if (tipo === 'item') {
+      const it = db.itens.find(i => i.id === id);
+      if (!it) throw erro('Item não encontrado.');
+      if (!it.excluido) throw erro('Só itens que estão na Lixeira podem ser excluídos definitivamente.');
+      const snapshot = snap(it);
+      db.itens = db.itens.filter(i => i.id !== id);
+      for (const m of db.movimentos) if (m.itemId === id) { m.itemId = null; if (!m.item) m.item = snapshot; }
+      return registrar(db, { tipo: 'EXCLUSAO_DEFINITIVA', item: snapshot, lote: lote || null, obs: `Item excluído definitivamente da Lixeira (situação ao excluir: ${it.excluido.situacao || '—'})` });
+    }
+    if (tipo === 'toner') {
+      const t = db.toners.find(x => x.id === id);
+      if (!t) throw erro('Toner não encontrado.');
+      if (!t.excluido) throw erro('Só toners que estão na Lixeira podem ser excluídos definitivamente.');
+      const snapshot = snapToner(t);
+      db.toners = db.toners.filter(x => x.id !== id);
+      for (const m of db.movimentos) if (m.tonerId === id) { m.tonerId = null; if (!m.item) m.item = snapshot; }
+      return registrar(db, { tipo: 'EXCLUSAO_DEFINITIVA', item: snapshot, lote: lote || null, obs: `Toner excluído definitivamente da Lixeira (situação ao excluir: ${t.excluido.situacao || '—'})` });
+    }
+    throw erro('Tipo inválido: use item ou toner.');
+  }
+
+  // d: { tipo: 'item'|'toner', id }
+  function excluirDefinitivo(db, d) {
+    return removerDefinitivo(db, d && d.tipo, d && d.id, null);
+  }
+
+  // Exclui definitivamente tudo o que está na Lixeira. Retorna { itens, toners }.
+  function esvaziarLixeira(db) {
+    const itens = db.itens.filter(i => i.excluido).map(i => i.id);
+    const toners = db.toners.filter(t => t.excluido).map(t => t.id);
+    if (!itens.length && !toners.length) throw erro('A Lixeira já está vazia.');
+    const lote = uid();
+    for (const id of itens) removerDefinitivo(db, 'item', id, lote);
+    for (const id of toners) removerDefinitivo(db, 'toner', id, lote);
+    return { itens: itens.length, toners: toners.length };
+  }
+
   function adicionarToner(db, d) {
     const modelo = limpa(d.modelo);
     if (!modelo) throw erro('Informe o modelo do toner.');
@@ -912,7 +955,7 @@
     novoBanco, total, snap, getItem, itemPorSerie, registrar,
     cadastrarItem, editarItem, editarItensEmLote, avisosExclusao, excluirItem, restaurarItem, itensAtivos, tonersAtivos,
     entrada, entregar, devolver, enviarManutencao, retornarManutencao, descartar, editarDescarte, editarDescartesEmLote, ajustar,
-    adicionarToner, mudarStatusToner, editarToner, excluirToner, restaurarToner, atualizarCoresToners,
+    adicionarToner, mudarStatusToner, editarToner, excluirToner, restaurarToner, atualizarCoresToners, excluirDefinitivo, esvaziarLixeira,
     listas, categoriaUsaSerie, guardaDados, verificarConsistencia,
     TIPOS_PESSOA, ORIGENS_PESSOA, CAMPOS_PESSOA, criarPessoa, editarPessoa, desativarPessoa, reativarPessoa, vincularNomesAntigos,
     getPessoa, listaPessoas, chaveNome, nomeResponsavel, posicoesPessoas, itensComPessoa, historicoPessoa, gruposNomesAntigos,
