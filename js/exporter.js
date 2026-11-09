@@ -1,7 +1,7 @@
 /* Exportação: planilha de backup (.xlsx), CSV do estoque e backup completo (.json). */
 (function (App) {
   'use strict';
-  const { fmtData, fmtDataHora, hojeISO } = App.util;
+  const { fmtData, fmtDataHora, hojeISO, chave } = App.util;
   const L = App.ledger;
 
   function linhasEstoque(db) {
@@ -87,16 +87,30 @@
     return ws;
   }
 
-  function montarPlanilha(db) {
+  // Abas da planilha de backup, na ordem em que aparecem.
+  const ABAS_PLANILHA = [
+    { nome: 'Estoque', linhas: linhasEstoque, larguras: [22, 30, 11, 24, 12, 16, 9, 12, 26, 8, 13, 7, 12, 30, 38] },
+    { nome: 'Movimentações', linhas: linhasMovimentos, larguras: [11, 20, 22, 30, 22, 13, 10, 13, 28, 15, 40, 16, 22, 30, 38] },
+    { nome: 'Descarte', linhas: linhasDescarte, larguras: [11, 20, 28, 20, 6, 10, 36, 12, 12, 14, 16, 16, 30] },
+    { nome: 'Toner', linhas: linhasToner, larguras: [16, 10, 18, 10, 30] },
+    { nome: 'Lixeira', linhas: linhasLixeira, larguras: [8, 22, 30, 22, 18, 16, 30, 38] },
+    { nome: 'Pessoas', linhas: linhasPessoas, larguras: [28, 8, 20, 13, 30, 9, 10, 18, 30, 26, 38] },
+  ];
+  const NOMES_ABAS = ABAS_PLANILHA.map(a => a.nome);
+
+  // abas: lista de nomes (opcional; padrão = todas). Nome desconhecido é ignorado; nenhuma válida = erro.
+  function montarPlanilha(db, abas) {
+    const escolhidas = abas ? ABAS_PLANILHA.filter(a => abas.includes(a.nome)) : ABAS_PLANILHA;
+    if (!escolhidas.length) throw new Error('Escolha pelo menos uma aba.');
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, folha(linhasEstoque(db), [22, 30, 11, 24, 12, 16, 9, 12, 26, 8, 13, 7, 12, 30, 38]), 'Estoque');
-    XLSX.utils.book_append_sheet(wb, folha(linhasMovimentos(db), [11, 20, 22, 30, 22, 13, 10, 13, 28, 15, 40, 16, 22, 30, 38]), 'Movimentações');
-    XLSX.utils.book_append_sheet(wb, folha(linhasDescarte(db), [11, 20, 28, 20, 6, 10, 36, 12, 12, 14, 16, 16, 30]), 'Descarte');
-    XLSX.utils.book_append_sheet(wb, folha(linhasToner(db), [16, 10, 18, 10, 30]), 'Toner');
-    XLSX.utils.book_append_sheet(wb, folha(linhasLixeira(db), [8, 22, 30, 22, 18, 16, 30, 38]), 'Lixeira');
-    XLSX.utils.book_append_sheet(wb, folha(linhasPessoas(db), [28, 8, 20, 13, 30, 9, 10, 18, 30, 26, 38]), 'Pessoas');
+    for (const a of escolhidas) XLSX.utils.book_append_sheet(wb, folha(a.linhas(db), a.larguras), a.nome);
     wb.Props = { Title: 'Backup do estoque de TI', Author: 'Estoque Infra (aplicação local)', CreatedDate: new Date() };
     return wb;
+  }
+
+  // Quantidade de linhas (sem o cabeçalho) de cada aba, para mostrar na escolha.
+  function contarLinhasAbas(db) {
+    return Object.fromEntries(ABAS_PLANILHA.map(a => [a.nome, Math.max(0, a.linhas(db).length - 1)]));
   }
 
   function planilhaBinaria(db) {
@@ -144,8 +158,16 @@
     setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
 
-  function baixarPlanilha(db) {
-    baixar(new Blob([planilhaBinaria(db)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `estoque-backup-${hojeISO()}.xlsx`);
+  // Nome do arquivo indica as abas quando não são todas (ex.: estoque-backup-descarte-lixeira-2026-11-09.xlsx).
+  function nomeArquivoPlanilha(abas) {
+    const todas = !abas || NOMES_ABAS.every(n => abas.includes(n));
+    const sufixo = todas ? '' : '-' + NOMES_ABAS.filter(n => abas.includes(n)).map(n => chave(n).replace(/[^a-z0-9]+/g, '')).join('-');
+    return `estoque-backup${sufixo}-${hojeISO()}.xlsx`;
+  }
+
+  function baixarPlanilha(db, abas) {
+    const bin = XLSX.write(montarPlanilha(db, abas), { bookType: 'xlsx', type: 'array', compression: true });
+    baixar(new Blob([bin], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), nomeArquivoPlanilha(abas));
   }
 
   function baixarItensPessoa(db, pessoaId) {
@@ -172,6 +194,6 @@
     baixar(new Blob([JSON.stringify(db, null, 1)], { type: 'application/json' }), `${prefixo || 'estoque-backup'}-${hojeISO()}.json`);
   }
 
-  App.exporter = { montarPlanilha, planilhaBinaria, planilhaConsultaBinaria, baixarPlanilha, baixarCSVEstoque, baixarJSON, celulaSeguraCSV, linhasEstoque, linhasMovimentos, linhasDescarte,
+  App.exporter = { NOMES_ABAS, contarLinhasAbas, nomeArquivoPlanilha, montarPlanilha, planilhaBinaria, planilhaConsultaBinaria, baixarPlanilha, baixarCSVEstoque, baixarJSON, celulaSeguraCSV, linhasEstoque, linhasMovimentos, linhasDescarte,
     linhasPessoas, linhasItensPessoa, linhasHistoricoPessoa, montarPlanilhaPessoa, baixarItensPessoa };
 })(globalThis.App = globalThis.App || {});

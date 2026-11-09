@@ -109,6 +109,34 @@ teste('arquivo derivado: grava .xlsx ao lado do estoque.json e recusa nomes peri
   }
 });
 
+secao('Planilha de backup por abas');
+
+teste('montarPlanilha com abas escolhidas: só elas, na ordem padrão; nenhuma = erro', () => {
+  const db = L.novoBanco();
+  const wb = E.montarPlanilha(db, ['Lixeira', 'Descarte']);
+  assert.deepStrictEqual(wb.SheetNames, ['Descarte', 'Lixeira']);
+  assert.deepStrictEqual(E.montarPlanilha(db).SheetNames, E.NOMES_ABAS, 'sem lista = todas');
+  assert.throws(() => E.montarPlanilha(db, []), /pelo menos uma aba/);
+  assert.throws(() => E.montarPlanilha(db, ['Inexistente']), /pelo menos uma aba/);
+});
+
+teste('nome do arquivo indica as abas quando não são todas', () => {
+  assert.match(E.nomeArquivoPlanilha(['Descarte', 'Lixeira']), /^estoque-backup-descarte-lixeira-\d{4}-\d{2}-\d{2}\.xlsx$/);
+  assert.match(E.nomeArquivoPlanilha(['Movimentações']), /^estoque-backup-movimentacoes-/);
+  assert.match(E.nomeArquivoPlanilha(E.NOMES_ABAS), /^estoque-backup-\d{4}-/);
+  assert.match(E.nomeArquivoPlanilha(), /^estoque-backup-\d{4}-/);
+});
+
+teste('contagem de linhas por aba (para mostrar na escolha)', () => {
+  const db = L.novoBanco();
+  L.cadastrarItem(db, { categoria: 'Mouse', descricao: 'M90', controle: 'quantidade', quantidade: 3, local: 'MATRIZ' });
+  const c = E.contarLinhasAbas(db);
+  assert.strictEqual(c.Estoque, 1);
+  assert.strictEqual(c['Movimentações'], 1);
+  assert.strictEqual(c.Descarte, 0);
+  assert.deepStrictEqual(Object.keys(c), E.NOMES_ABAS);
+});
+
 secao('Gravação na pasta');
 
 teste('teste de gravação: true quando grava, false em pasta só de leitura, sem deixar arquivo de teste', async () => {

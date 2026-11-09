@@ -393,14 +393,42 @@
   }
 
   // ---------- Exportar / backup ----------
+  // Escolha das abas da planilha: uma caixa por aba e "Marcar todas" (marca/desmarca todas e acompanha as demais).
+  function escolherAbasPlanilha() {
+    const E = App.exporter;
+    const contagem = E.contarLinhasAbas(S.db);
+    const campoDe = nome => 'aba_' + chave(nome).replace(/[^a-z0-9]+/g, '');
+    const campos = E.NOMES_ABAS.map(nome => campoDe(nome));
+    const todasMarcadas = v => campos.every(c => v[c]);
+    UI.formulario({
+      titulo: 'Baixar planilha (.xlsx)',
+      subtitulo: 'Escolha as abas que vão na planilha.',
+      campos: [
+        { nome: 'todas', rotulo: 'Marcar todas', tipo: 'checkbox', valor: true, largo: true,
+          aoMudar: (v, api) => { for (const c of campos) api.set(c, v.todas); } },
+      ].concat(E.NOMES_ABAS.map(nome => ({
+        nome: campoDe(nome), tipo: 'checkbox', valor: true, largo: true,
+        rotulo: `${nome} (${contagem[nome]} ${contagem[nome] === 1 ? 'linha' : 'linhas'})`,
+        aoMudar: (v, api) => api.set('todas', todasMarcadas(v)),
+      }))),
+      botoes: [{ rotulo: 'Baixar', acao: 'baixar', primario: true }],
+      aoEnviar: async v => {
+        const abas = E.NOMES_ABAS.filter(nome => v[campoDe(nome)]);
+        if (!abas.length) { const e = new Error('Marque pelo menos uma aba.'); e.negocio = true; throw e; }
+        E.baixarPlanilha(S.db, abas);
+        UI.toast(abas.length === E.NOMES_ABAS.length ? 'Planilha completa baixada.' : `Planilha baixada com: ${abas.join(', ')}.`);
+      },
+    });
+  }
+
   function secaoExportar(db) {
     const vazio = !db || (!db.itens.length && !db.movimentos.length && !db.toners.length);
     const inputJSON = h('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: () => restaurar(inputJSON.files[0]) });
     return h('section', { class: 'secao' },
       h('h2', null, 'Exportar e backup'),
-      h('p', null, 'A planilha de backup tem as abas Estoque, Movimentações, Descarte e Toner, com uma linha de cabeçalho e filtros — pronta para abrir no Excel. O backup .json guarda tudo' + (pode() ? ' e pode ser restaurado aqui.' : '.')),
+      h('p', null, 'A planilha (.xlsx) tem uma aba por assunto (Estoque, Movimentações, Descarte, Toner, Lixeira, Pessoas), com cabeçalho e filtros — você escolhe quais abas baixar. O backup .json guarda sempre tudo' + (pode() ? ' e pode ser restaurado aqui.' : '.')),
       h('div', { class: 'linha-botoes' },
-        h('button', { class: 'btn primario', type: 'button', disabled: vazio, onclick: () => App.exporter.baixarPlanilha(S.db) }, 'Baixar planilha (.xlsx)'),
+        h('button', { class: 'btn primario', type: 'button', disabled: vazio, onclick: () => escolherAbasPlanilha() }, 'Baixar planilha (.xlsx)…'),
         h('button', { class: 'btn', type: 'button', disabled: vazio, onclick: () => App.exporter.baixarCSVEstoque(S.db) }, 'Baixar estoque (.csv)'),
         h('button', { class: 'btn', type: 'button', disabled: vazio, onclick: () => App.exporter.baixarJSON(S.db) }, 'Baixar backup completo (.json)'),
         // Gravar na pasta e restaurar alteram dados compartilhados: somem em modo consulta.

@@ -157,7 +157,7 @@
   // ---------- Versão do aplicativo ----------
   // O arquivo guarda a versão de quem gravou e a maior versão que já gravou nele. Um computador com versão
   // menor que a maior já vista está desatualizado: é avisado e fica em consulta (ver js/store.js).
-  const VERSAO_APP = '2.2.0';
+  const VERSAO_APP = '2.3.0';
   let versaoMaximaVista = null;
 
   function compararVersoes(a, b) {

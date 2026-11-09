@@ -473,7 +473,7 @@ teste('Lixeira: sem Restaurar, Excluir definitivamente e Esvaziar; Histórico co
 
 teste('Dados e backup: some o que altera; ficam baixar, verificar, pasta e a opção "Uso deste computador"', () => {
   const n = tela('dados');
-  for (const t of ['Escolher planilha…', 'Restaurar backup (.json)…', 'Atualizar cores dos toners pela planilha…', 'Tentar de novo', 'Descartar', 'Baixar planilha (.xlsx)']) {
+  for (const t of ['Escolher planilha…', 'Restaurar backup (.json)…', 'Atualizar cores dos toners pela planilha…', 'Tentar de novo', 'Descartar', 'Baixar planilha (.xlsx)…']) {
     if (t === 'Atualizar cores dos toners pela planilha…') continue; // só aparece com toners importados
     assert.ok(tem(n, t), t);
   }
@@ -482,7 +482,7 @@ teste('Dados e backup: some o que altera; ficam baixar, verificar, pasta e a op�
     for (const t of ['Escolher planilha…', 'Restaurar backup (.json)…', 'Atualizar cores dos toners pela planilha…', 'Tentar de novo', 'Descartar', 'Gravar backup na pasta agora']) {
       assert.ok(!tem(c, t), 'não deveria ter ' + t);
     }
-    for (const t of ['Baixar planilha (.xlsx)', 'Baixar estoque (.csv)', 'Baixar backup completo (.json)', 'Verificar agora', 'Trocar pasta…', 'Sincronizar agora']) assert.ok(tem(c, t), t);
+    for (const t of ['Baixar planilha (.xlsx)…', 'Baixar estoque (.csv)', 'Baixar backup completo (.json)', 'Verificar agora', 'Trocar pasta…', 'Sincronizar agora']) assert.ok(tem(c, t), t);
     assert.ok(c.textContent.includes('Uso deste computador'));
     assert.ok(c.textContent.includes('Este computador é só para consulta (não altera o estoque)'));
     assert.ok(c.textContent.includes('Quem não tem permissão de edição no SharePoint fica em consulta automaticamente.'));
@@ -530,7 +530,7 @@ teste('Planilha de consulta: só aparece se o store informar; mostra data/erro; 
 teste('Exportações continuam em consulta (baixar planilha, CSV, JSON e lista da pessoa)', () => {
   emModo(true, () => {
     const c = tela('dados');
-    for (const t of ['Baixar planilha (.xlsx)', 'Baixar estoque (.csv)', 'Baixar backup completo (.json)']) {
+    for (const t of ['Baixar planilha (.xlsx)…', 'Baixar estoque (.csv)', 'Baixar backup completo (.json)']) {
       const b = c.querySelectorAll('button').find(x => x.textContent === t);
       assert.ok(b && !b.disabled, t);
     }

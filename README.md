@@ -65,7 +65,7 @@ A cada versão publicada, aumente `VERSAO_APP` em `js/sync.js`: computadores com
 | Aproveitar os nomes já digitados nas entregas antigas | **Pessoas → Vincular nomes antigos…** (você decide, grupo a grupo; nada é criado sozinho) |
 | Ver com quem está cada item / preparar inventário por colaborador | **Pessoas → número na coluna "Itens com a pessoa"** → **Exportar lista (.xlsx)** |
 | Ver tudo o que aconteceu com um item | menu **⋯ → Histórico** |
-| Planilha para backup | **Dados e backup → Baixar planilha (.xlsx)** |
+| Planilha para backup (todas ou só algumas abas) | **Dados e backup → Baixar planilha (.xlsx)…** → marque as abas (ou "Marcar todas") |
 
 Atalho: `/` vai para a busca.
 
